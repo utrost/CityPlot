@@ -14,6 +14,8 @@ All geometries are **clipped** to the selected area (rectangular or circular) at
 
 CityPlot includes a browser-based interface with an interactive map.
 
+![CityPlot Web UI — Manhattan, 1000m radius](images/web-ui.jpg)
+
 ```bash
 python web.py
 # → http://localhost:5555
@@ -22,7 +24,7 @@ python web.py
 **Features:**
 - **Interactive map** — click to set center, or search by address/place name (Nominatim)
 - **Live preview** — radius overlay (rectangle or circle) updates in real-time on the map
-- **All parameters** — style, paper size, orientation, margins (per side), circular clip
+- **All parameters** — style, paper size, orientation (landscape/portrait), margins (per side), circular clip
 - **One-click generate** — SVG is rendered server-side, then downloaded directly
 
 ## CLI

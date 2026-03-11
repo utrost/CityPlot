@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 *.svg
 !examples/*.svg
+!images/*.svg
 cache/
