@@ -10,22 +10,35 @@ The output is **layered**: each feature type lives in its own SVG group (`<g id=
 
 All geometries are **clipped** to the selected area (rectangular or circular) at the geometry level using Shapely, ensuring clean edges and no invisible paths outside the canvas.
 
-## Web UI
+## Web App
 
-CityPlot includes a browser-based interface with an interactive map.
+**→ [Try it: utrost.github.io/CityPlot](https://utrost.github.io/CityPlot/)**
+
+No installation needed. The web app runs entirely in the browser — no server, no backend, no sign-up.
 
 ![CityPlot Web UI — Manhattan, 1000m radius](images/web-ui.jpg)
+
+**Features:**
+- **Interactive map** — click to set center, or search by address/place name (Nominatim geocoding)
+- **Live preview** — radius overlay (rectangle or circle) updates in real-time on the map
+- **All parameters** — style, paper size, orientation (landscape/portrait), margins (per side), circular clip
+- **One-click generate** — SVG is rendered client-side and downloaded directly
+
+**Stack:**
+- [Leaflet](https://leafletjs.com/) — interactive map with OpenStreetMap tiles
+- [Overpass API](https://overpass-api.de/) — fetches OSM features directly from the browser (CORS-enabled)
+- Equirectangular projection with cos(lat) correction — accurate at city scale, no library needed
+- Client-side geometry clipping and SVG string generation in vanilla JavaScript
+- Zero dependencies, single HTML file, hosted on GitHub Pages
+
+### Local Web UI (Flask)
+
+For offline use or development, CityPlot also includes a Flask-based web server that uses the full Python pipeline (osmnx + Shapely UTM projection):
 
 ```bash
 python web.py
 # → http://localhost:5555
 ```
-
-**Features:**
-- **Interactive map** — click to set center, or search by address/place name (Nominatim)
-- **Live preview** — radius overlay (rectangle or circle) updates in real-time on the map
-- **All parameters** — style, paper size, orientation (landscape/portrait), margins (per side), circular clip
-- **One-click generate** — SVG is rendered server-side, then downloaded directly
 
 ## CLI
 
