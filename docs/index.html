@@ -39,6 +39,13 @@
   .orient-btn.active { background: #1a4080; color: #e0e0e0; border-color: #e94560; }
   .orient-btn:hover { border-color: #e94560; }
 
+  .layer-checks { display: flex; flex-wrap: wrap; gap: 4px; }
+  .layer-check { display: flex; align-items: center; gap: 4px; background: #0f3460; border: 1px solid #1a4080; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.15s; user-select: none; }
+  .layer-check:hover { border-color: #e94560; }
+  .layer-check input { accent-color: #e94560; width: 14px; height: 14px; cursor: pointer; }
+  .layer-check.off { opacity: 0.4; }
+  .layer-check .swatch { width: 10px; height: 10px; border-radius: 2px; border: 1px solid #333; }
+
   .checkbox-row { display: flex; align-items: center; gap: 8px; }
   .checkbox-row input[type="checkbox"] { accent-color: #e94560; width: 16px; height: 16px; }
 
@@ -133,6 +140,11 @@
         <input type="number" class="m-right" id="m-right" value="15" min="0" max="100">
         <input type="number" class="m-bottom" id="m-bottom" value="15" min="0" max="100">
       </div>
+    </div>
+
+    <div class="field">
+      <label>Layers</label>
+      <div id="layer-checks" class="layer-checks"></div>
     </div>
 
     <div class="checkbox-row">
@@ -292,7 +304,39 @@ document.getElementById('radius').addEventListener('input', () => {
   document.getElementById('radius-value').textContent = v >= 1000 ? `${(v/1000).toFixed(1)}km` : `${v}m`;
   updatePreview();
 });
-['paper', 'style'].forEach(id => document.getElementById(id).addEventListener('change', updatePreview));
+const LAYER_COLORS = {
+  streets_primary: '#000', streets_secondary: '#000', streets_minor: '#888',
+  water: '#3366aa', buildings: '#666', parks: '#228833', railway: '#444',
+};
+
+function buildLayerChecks() {
+  const styleName = document.getElementById('style').value;
+  const style = STYLES[styleName];
+  const container = document.getElementById('layer-checks');
+  container.innerHTML = '';
+  for (const name of Object.keys(style)) {
+    const label = document.createElement('label');
+    label.className = 'layer-check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.dataset.layer = name;
+    cb.addEventListener('change', () => { label.classList.toggle('off', !cb.checked); });
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = LAYER_COLORS[name] || '#888';
+    const text = document.createTextNode(name.replace('streets_', '').replace('_', ' '));
+    label.appendChild(cb);
+    label.appendChild(swatch);
+    label.appendChild(text);
+    container.appendChild(label);
+  }
+}
+
+buildLayerChecks();
+
+['paper'].forEach(id => document.getElementById(id).addEventListener('change', updatePreview));
+document.getElementById('style').addEventListener('change', () => { buildLayerChecks(); updatePreview(); });
 document.getElementById('circle').addEventListener('change', updatePreview);
 document.querySelectorAll('.orient-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -517,8 +561,17 @@ document.getElementById('generate-btn').addEventListener('click', async () => {
     parseFloat(document.getElementById('m-left').value),
   ];
 
-  const style = STYLES[styleName];
+  const fullStyle = STYLES[styleName];
+  // Filter to checked layers only
+  const checkedLayers = new Set(
+    [...document.querySelectorAll('#layer-checks input:checked')].map(cb => cb.dataset.layer)
+  );
+  const style = {};
+  for (const [name, cfg] of Object.entries(fullStyle)) {
+    if (checkedLayers.has(name)) style[name] = cfg;
+  }
   const layerNames = Object.keys(style);
+  if (!layerNames.length) { throw new Error('No layers selected'); }
   const layerData = {};
   let totalPaths = 0;
 

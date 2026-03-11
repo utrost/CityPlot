@@ -46,6 +46,9 @@ def generate():
     fd, outpath = tempfile.mkstemp(suffix=".svg", prefix="cityplot_")
     os.close(fd)
 
+    # Parse layers
+    layer_filter = data.get("layers", None)
+
     try:
         generate_svg(
             place=f"{lat},{lon}",
@@ -54,6 +57,7 @@ def generate():
             paper=paper,
             margins=margins,
             output=outpath,
+            layer_filter=layer_filter,
             clip_circle=circle,
         )
         return jsonify({"ok": True, "file": outpath, "size_kb": round(Path(outpath).stat().st_size / 1024)})

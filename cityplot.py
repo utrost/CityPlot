@@ -218,7 +218,8 @@ def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None,
 # ── SVG Generation ───────────────────────────────────────────────────────────
 
 def generate_svg(place=None, bbox=None, radius=None, style_name="default",
-                 paper="a3l", margins=(15, 15, 15, 15), output="output.svg", clip_circle=False):
+                 paper="a3l", margins=(15, 15, 15, 15), output="output.svg", clip_circle=False,
+                 layer_filter=None):
     """Main pipeline: fetch data → project → write SVG."""
 
     style = STYLES.get(style_name, STYLES["default"])
@@ -239,9 +240,18 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
             print(f"CityPlot: {place}")
     else:
         print(f"CityPlot: {bbox}")
+    # Filter layers if requested
+    if layer_filter:
+        style["layers"] = {k: v for k, v in style["layers"].items() if k in layer_filter}
+        if not style["layers"]:
+            print(f"Error: No matching layers. Available: {', '.join(STYLES[style_name]['layers'].keys())}", file=sys.stderr)
+            sys.exit(1)
+
     margin_top, margin_right, margin_bottom, margin_left = margins
+    active_layers = ', '.join(style["layers"].keys())
     print(f"  Style: {style_name}, Paper: {paper} ({paper_w}×{paper_h}mm)")
     print(f"  Radius: {radius}m, Margins: {margin_top}/{margin_right}/{margin_bottom}/{margin_left}mm")
+    print(f"  Layers: {active_layers}")
 
     # ── Compute clip center in UTM ──
     clip_center_utm = None
@@ -384,8 +394,9 @@ def main():
     parser.add_argument("--paper", choices=PAPER_SIZES.keys(), default="a3l", help="Paper size (default: a3l)")
     parser.add_argument("--margin", default="15", help="Margin in mm: single value (all sides), 2 values 'V,H', or 4 values 'top,right,bottom,left'")
     parser.add_argument("--output", "-o", default="output.svg", help="Output SVG file")
+    parser.add_argument("--layers", help="Comma-separated layer names to include (default: all). Use --list-styles to see layer names")
     parser.add_argument("--circle", action="store_true", help="Apply circular clip mask")
-    parser.add_argument("--list-styles", action="store_true", help="List available styles")
+    parser.add_argument("--list-styles", action="store_true", help="List available styles and their layers")
 
     args = parser.parse_args()
 
@@ -425,6 +436,10 @@ def main():
         if len(bbox) != 4:
             parser.error("--bbox requires exactly 4 values: west,south,east,north")
 
+    layer_filter = None
+    if args.layers:
+        layer_filter = [l.strip() for l in args.layers.split(",")]
+
     generate_svg(
         place=args.place,
         bbox=bbox,
@@ -434,6 +449,7 @@ def main():
         margins=margins,
         output=args.output,
         clip_circle=args.circle,
+        layer_filter=layer_filter,
     )
 
 
