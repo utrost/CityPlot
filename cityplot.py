@@ -152,8 +152,9 @@ def parse_center(place):
     return None
 
 
-def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None, clip_center_utm=None, clip_radius=None):
-    """Fetch OSM features as GeoDataFrame, projected to UTM and clipped to radius."""
+def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None,
+                   clip_center_utm=None, clip_radius=None, clip_circle=False):
+    """Fetch OSM features as GeoDataFrame, projected to UTM and clipped."""
     try:
         if bbox:
             west, south, east, north = bbox
@@ -175,11 +176,21 @@ def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None, c
         # Project to UTM for metric coordinates
         gdf = ox.projection.project_gdf(gdf)
 
-        # Clip geometries to radius circle (prevents rivers/railways from extending bounds)
+        # Clip geometries to region (prevents rivers/railways from extending bounds)
         if clip_center_utm is not None and clip_radius is not None:
-            clip_circle = Point(clip_center_utm).buffer(clip_radius)
+            cx, cy = clip_center_utm
+            if clip_circle:
+                clip_shape = Point(clip_center_utm).buffer(clip_radius)
+            else:
+                # Rectangular clip matching paper aspect ratio
+                clip_shape = Polygon([
+                    (cx - clip_radius, cy - clip_radius),
+                    (cx + clip_radius, cy - clip_radius),
+                    (cx + clip_radius, cy + clip_radius),
+                    (cx - clip_radius, cy + clip_radius),
+                ])
             gdf = gdf.copy()
-            gdf["geometry"] = gdf["geometry"].intersection(clip_circle)
+            gdf["geometry"] = gdf["geometry"].intersection(clip_shape)
             # Remove empty geometries after clipping
             gdf = gdf[~gdf["geometry"].is_empty]
 
@@ -234,7 +245,8 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
         center_gdf = ox.projection.project_gdf(center_gdf)
         cp = center_gdf.geometry.iloc[0]
         clip_center_utm = (cp.x, cp.y)
-        print(f"  Clip center (UTM): {cp.x:.0f}, {cp.y:.0f}")
+        clip_mode = "circle" if clip_circle else "rect"
+        print(f"  Clip center (UTM): {cp.x:.0f}, {cp.y:.0f} [{clip_mode}]")
 
     # ── Fetch all layers ──
     all_lines = {}
@@ -244,7 +256,8 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
         print(f"  Fetching {layer_name}...")
         gdf = fetch_features(place=place, center=center, bbox=bbox, radius=radius,
                              tags=layer_cfg["tags"],
-                             clip_center_utm=clip_center_utm, clip_radius=radius)
+                             clip_center_utm=clip_center_utm, clip_radius=radius,
+                             clip_circle=clip_circle)
 
         if gdf.empty:
             print(f"    → empty")
@@ -312,19 +325,27 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
 
         dwg.add(group)
 
-    # ── Optional circular clip ──
+    # ── Optional circle border ──
     if clip_circle:
         cx, cy = canvas_w / 2, canvas_h / 2
-        r = min(canvas_w, canvas_h) / 2 - margin_mm
-        clip = dwg.defs.add(dwg.clipPath(id="circle-clip"))
-        clip.add(dwg.circle(center=(cx, cy), r=r))
-        # Wrap all content in clipped group
-        wrapper = dwg.g(clip_path="url(#circle-clip)")
-        for element in list(dwg.elements):
-            if element != dwg.defs:
-                dwg.elements.remove(element)
-                wrapper.add(element)
-        dwg.add(wrapper)
+        # Draw the clip circle as a visible border
+        minx, miny, maxx, maxy = bounds
+        geo_w = maxx - minx
+        geo_h = maxy - miny
+        draw_w = canvas_w - 2 * margin_mm
+        draw_h = canvas_h - 2 * margin_mm
+        scale = min(draw_w / geo_w, draw_h / geo_h) if geo_w and geo_h else 1
+        r_svg = radius * scale if radius else min(draw_w, draw_h) / 2
+        # Center of data on canvas
+        offset_x = margin_mm + (draw_w - geo_w * scale) / 2
+        offset_y = margin_mm + (draw_h - geo_h * scale) / 2
+        cx_svg = offset_x + geo_w * scale / 2
+        cy_svg = offset_y + geo_h * scale / 2
+        dwg.add(dwg.circle(
+            center=(round(cx_svg, 2), round(cy_svg, 2)),
+            r=round(r_svg, 2),
+            stroke="#000000", stroke_width=0.3, fill="none"
+        ))
 
     dwg.save()
 
