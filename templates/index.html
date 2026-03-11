@@ -33,6 +33,11 @@
   .margins-grid .m-right { grid-column: 3; grid-row: 2; }
   .margins-grid .m-bottom { grid-column: 2; grid-row: 3; }
 
+  .orientation-toggle { display: flex; gap: 4px; }
+  .orient-btn { flex: 1; background: #0f3460; border: 1px solid #1a4080; color: #888; padding: 7px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+  .orient-btn.active { background: #1a4080; color: #e0e0e0; border-color: #e94560; }
+  .orient-btn:hover { border-color: #e94560; }
+
   .checkbox-row { display: flex; align-items: center; gap: 8px; }
   .checkbox-row input[type="checkbox"] { accent-color: #e94560; width: 16px; height: 16px; }
 
@@ -93,8 +98,20 @@
       <div class="field">
         <label>Paper</label>
         <select id="paper">
-          {% for p in papers %}<option value="{{ p }}"{% if p == 'a3l' %} selected{% endif %}>{{ p }}</option>{% endfor %}
+          <option value="a3">A3</option>
+          <option value="a4">A4</option>
+          <option value="letter">Letter</option>
         </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Orientation</label>
+        <div class="orientation-toggle">
+          <button type="button" class="orient-btn active" id="orient-landscape" data-orient="landscape">⬬ Landscape</button>
+          <button type="button" class="orient-btn" id="orient-portrait" data-orient="portrait">▯ Portrait</button>
+        </div>
       </div>
     </div>
 
@@ -140,12 +157,39 @@ let selectedLat = null;
 let selectedLon = null;
 
 const paperDims = {{ paper_dims | tojson }};
+let orientation = 'landscape';
+
+function getPaperKey() {
+  const base = document.getElementById('paper').value;
+  if (orientation === 'landscape') {
+    return base === 'letter' ? 'letter' : base + 'l';
+  }
+  return base;
+}
+
+function getPaperDims() {
+  const base = document.getElementById('paper').value;
+  const dims = paperDims[base]; // portrait dims (w < h)
+  if (orientation === 'landscape') {
+    return { w: Math.max(dims.w, dims.h), h: Math.min(dims.w, dims.h) };
+  }
+  return { w: Math.min(dims.w, dims.h), h: Math.max(dims.w, dims.h) };
+}
+
+// Orientation toggle
+document.querySelectorAll('.orient-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.orient-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    orientation = btn.dataset.orient;
+    updatePreview();
+  });
+});
 
 function updatePreview() {
   const radius = parseInt(document.getElementById('radius').value);
-  const paper = document.getElementById('paper').value;
   const isCircle = document.getElementById('circle').checked;
-  const dims = paperDims[paper];
+  const dims = getPaperDims();
   const aspect = dims.w / dims.h;
 
   if (!selectedLat) return;
@@ -268,7 +312,7 @@ document.getElementById('generate-btn').addEventListener('click', async () => {
         lon: selectedLon,
         radius: parseInt(radiusSlider.value),
         style: document.getElementById('style').value,
-        paper: document.getElementById('paper').value,
+        paper: getPaperKey(),
         circle: document.getElementById('circle').checked,
         margin_top: parseFloat(document.getElementById('m-top').value),
         margin_right: parseFloat(document.getElementById('m-right').value),
