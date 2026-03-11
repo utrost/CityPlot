@@ -2,6 +2,8 @@
 
 Generate plotter-ready SVGs from OpenStreetMap data. No rasterization, no pixel-to-vector conversion — pure vector from source to output.
 
+![Bremen, 1km radius, mono style](images/bremen-example.png)
+
 ## How It Works
 
 CityPlot fetches geographic data (streets, buildings, water, parks, railways) from OpenStreetMap via the Overpass API, projects it to metric coordinates (UTM), and writes SVG paths directly. Every street, building outline, waterway, and park boundary becomes a native vector path — no pixels involved at any stage.
