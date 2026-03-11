@@ -17,45 +17,48 @@ import geopandas as gpd
 import svgwrite
 from shapely.geometry import MultiLineString, LineString, Polygon, MultiPolygon
 
+# Configure osmnx timeout (Overpass API can be slow for large queries)
+ox.settings.timeout = 60
+
 
 # ── Style Presets ────────────────────────────────────────────────────────────
 
 STYLES = {
     "default": {
         "layers": {
-            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 1.2},
-            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.7},
-            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.3},
-            "water":             {"tags": {"natural": "water", "waterway": True}, "stroke": "#3366aa", "width": 0.5},
-            "buildings":         {"tags": {"building": True}, "stroke": "#666666", "width": 0.15},
-            "parks":             {"tags": {"leisure": "park", "landuse": ["forest", "grass"]}, "stroke": "#228833", "width": 0.3},
-            "railway":           {"tags": {"railway": "rail"}, "stroke": "#444444", "width": 0.4, "dasharray": "4,2"},
+            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.6},
+            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.35},
+            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.15},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#3366aa", "width": 0.3},
+            "buildings":         {"tags": {"building": True}, "stroke": "#666666", "width": 0.1},
+            "parks":             {"tags": {"leisure": "park", "landuse": ["forest", "grass"]}, "stroke": "#228833", "width": 0.15},
+            "railway":           {"tags": {"railway": "rail"}, "stroke": "#444444", "width": 0.25, "dasharray": "4,2"},
         },
     },
     "minimal": {
         "layers": {
-            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 1.0},
-            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.5},
-            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified"]}, "stroke": "#000000", "width": 0.2},
-            "water":             {"tags": {"natural": "water", "waterway": True}, "stroke": "#000000", "width": 0.4},
+            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.5},
+            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.25},
+            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified"]}, "stroke": "#000000", "width": 0.1},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.25},
         },
     },
     "buildings": {
         "layers": {
-            "buildings":         {"tags": {"building": True}, "stroke": "#000000", "width": 0.15},
-            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary", "secondary"]}, "stroke": "#000000", "width": 0.5},
-            "water":             {"tags": {"natural": "water", "waterway": True}, "stroke": "#000000", "width": 0.3},
+            "buildings":         {"tags": {"building": True}, "stroke": "#000000", "width": 0.1},
+            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary", "secondary"]}, "stroke": "#000000", "width": 0.3},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.2},
         },
     },
     "mono": {
         "layers": {
-            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 1.2},
-            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.7},
-            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.3},
-            "water":             {"tags": {"natural": "water", "waterway": True}, "stroke": "#000000", "width": 0.5},
-            "buildings":         {"tags": {"building": True}, "stroke": "#000000", "width": 0.15},
-            "parks":             {"tags": {"leisure": "park", "landuse": ["forest", "grass"]}, "stroke": "#000000", "width": 0.3},
-            "railway":           {"tags": {"railway": "rail"}, "stroke": "#000000", "width": 0.4, "dasharray": "4,2"},
+            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.6},
+            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.35},
+            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.15},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.3},
+            "buildings":         {"tags": {"building": True}, "stroke": "#000000", "width": 0.1},
+            "parks":             {"tags": {"leisure": "park", "landuse": ["forest", "grass"]}, "stroke": "#000000", "width": 0.15},
+            "railway":           {"tags": {"railway": "rail"}, "stroke": "#000000", "width": 0.25, "dasharray": "4,2"},
         },
     },
 }
@@ -135,12 +138,28 @@ def transform_coords(lines, bounds, canvas_w, canvas_h, margin):
 
 # ── Data Fetching ────────────────────────────────────────────────────────────
 
-def fetch_features(place=None, bbox=None, radius=None, tags=None):
+def parse_center(place):
+    """Parse place as GPS coordinates (lat,lon) or geocode a name."""
+    if place and "," in place:
+        parts = place.split(",")
+        if len(parts) == 2:
+            try:
+                lat, lon = float(parts[0].strip()), float(parts[1].strip())
+                if -90 <= lat <= 90 and -180 <= lon <= 180:
+                    return (lat, lon)
+            except ValueError:
+                pass
+    return None
+
+
+def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None):
     """Fetch OSM features as GeoDataFrame, projected to UTM."""
     try:
         if bbox:
             west, south, east, north = bbox
             gdf = ox.features_from_bbox(bbox=(north, south, east, west), tags=tags)
+        elif center and radius:
+            gdf = ox.features_from_point(center, dist=radius, tags=tags)
         elif place and radius:
             gdf = ox.features_from_point(
                 ox.geocode(place), dist=radius, tags=tags
@@ -175,8 +194,18 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
     canvas_w = paper_w
     canvas_h = paper_h
 
-    print(f"CityPlot: {place or bbox}")
+    # Try to parse place as GPS coordinates
+    center = None
+    if place:
+        center = parse_center(place)
+        if center:
+            print(f"CityPlot: ({center[0]}, {center[1]})")
+        else:
+            print(f"CityPlot: {place}")
+    else:
+        print(f"CityPlot: {bbox}")
     print(f"  Style: {style_name}, Paper: {paper} ({paper_w}×{paper_h}mm)")
+    print(f"  Radius: {radius}m")
 
     # ── Fetch all layers ──
     all_lines = {}
@@ -184,7 +213,7 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
 
     for layer_name, layer_cfg in style["layers"].items():
         print(f"  Fetching {layer_name}...")
-        gdf = fetch_features(place=place, bbox=bbox, radius=radius, tags=layer_cfg["tags"])
+        gdf = fetch_features(place=place, center=center, bbox=bbox, radius=radius, tags=layer_cfg["tags"])
 
         if gdf.empty:
             print(f"    → empty")
@@ -281,7 +310,7 @@ def main():
     )
     parser.add_argument("place", nargs="?", help='Place name, e.g. "Bremen, Germany"')
     parser.add_argument("--bbox", help="Bounding box: west,south,east,north")
-    parser.add_argument("--radius", type=int, default=2000, help="Radius in meters (default: 2000)")
+    parser.add_argument("--radius", default="2000", help="Radius: meters (e.g. 2000) or km (e.g. 1.5k or 1.5km)")
     parser.add_argument("--style", choices=STYLES.keys(), default="default", help="Visual style preset")
     parser.add_argument("--paper", choices=PAPER_SIZES.keys(), default="a3l", help="Paper size (default: a3l)")
     parser.add_argument("--margin", type=int, default=15, help="Margin in mm (default: 15)")
@@ -298,7 +327,17 @@ def main():
         sys.exit(0)
 
     if not args.place and not args.bbox:
-        parser.error("Provide a place name or --bbox")
+        parser.error("Provide a place name, GPS coordinates (lat,lon), or --bbox")
+
+    # Parse radius (support m and km)
+    radius_str = args.radius.strip().lower()
+    if radius_str.endswith("km"):
+        radius = int(float(radius_str[:-2]) * 1000)
+    elif radius_str.endswith("k"):
+        radius = int(float(radius_str[:-1]) * 1000)
+    else:
+        radius = int(float(radius_str))
+    args.radius = radius
 
     bbox = None
     if args.bbox:
