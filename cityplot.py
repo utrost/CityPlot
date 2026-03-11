@@ -29,9 +29,9 @@ STYLES = {
             "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.6},
             "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.35},
             "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.15},
-            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#3366aa", "width": 0.3},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#3366aa", "width": 0.15, "fill": "#cce0f0"},
             "buildings":         {"tags": {"building": True}, "stroke": "#666666", "width": 0.1},
-            "parks":             {"tags": {"leisure": "park"}, "stroke": "#228833", "width": 0.15},
+            "parks":             {"tags": {"leisure": "park"}, "stroke": "#228833", "width": 0.1, "fill": "#d4edda"},
             "railway":           {"tags": {"railway": "rail"}, "stroke": "#444444", "width": 0.25, "dasharray": "4,2"},
         },
     },
@@ -40,14 +40,14 @@ STYLES = {
             "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.5},
             "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.25},
             "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified"]}, "stroke": "#000000", "width": 0.1},
-            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.25},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.15, "fill": "#e0e0e0"},
         },
     },
     "buildings": {
         "layers": {
             "buildings":         {"tags": {"building": True}, "stroke": "#000000", "width": 0.1},
             "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary", "secondary"]}, "stroke": "#000000", "width": 0.3},
-            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.2},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.15, "fill": "#e0e0e0"},
         },
     },
     "mono": {
@@ -55,9 +55,9 @@ STYLES = {
             "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.6},
             "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.35},
             "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.15},
-            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.3},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.15, "fill": "#e0e0e0"},
             "buildings":         {"tags": {"building": True}, "stroke": "#000000", "width": 0.1},
-            "parks":             {"tags": {"leisure": "park"}, "stroke": "#000000", "width": 0.15},
+            "parks":             {"tags": {"leisure": "park"}, "stroke": "#000000", "width": 0.1, "fill": "#e0e0e0"},
             "railway":           {"tags": {"railway": "rail"}, "stroke": "#000000", "width": 0.25, "dasharray": "4,2"},
         },
     },
@@ -104,8 +104,12 @@ def geometry_to_lines(geom):
     return []
 
 
-def transform_coords(lines, bounds, canvas_w, canvas_h, margin):
-    """Transform geographic coordinates to SVG canvas coordinates."""
+def transform_coords(lines, bounds, canvas_w, canvas_h, margins):
+    """Transform geographic coordinates to SVG canvas coordinates.
+    
+    margins: (top, right, bottom, left) in mm
+    """
+    margin_top, margin_right, margin_bottom, margin_left = margins
     minx, miny, maxx, maxy = bounds
     geo_w = maxx - minx
     geo_h = maxy - miny
@@ -113,17 +117,17 @@ def transform_coords(lines, bounds, canvas_w, canvas_h, margin):
     if geo_w == 0 or geo_h == 0:
         return []
 
-    draw_w = canvas_w - 2 * margin
-    draw_h = canvas_h - 2 * margin
+    draw_w = canvas_w - margin_left - margin_right
+    draw_h = canvas_h - margin_top - margin_bottom
 
     # Maintain aspect ratio
     scale_x = draw_w / geo_w
     scale_y = draw_h / geo_h
     scale = min(scale_x, scale_y)
 
-    # Center on canvas
-    offset_x = margin + (draw_w - geo_w * scale) / 2
-    offset_y = margin + (draw_h - geo_h * scale) / 2
+    # Center within draw area
+    offset_x = margin_left + (draw_w - geo_w * scale) / 2
+    offset_y = margin_top + (draw_h - geo_h * scale) / 2
 
     transformed = []
     for line in lines:
@@ -214,7 +218,7 @@ def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None,
 # ── SVG Generation ───────────────────────────────────────────────────────────
 
 def generate_svg(place=None, bbox=None, radius=None, style_name="default",
-                 paper="a3l", margin_mm=15, output="output.svg", clip_circle=False):
+                 paper="a3l", margins=(15, 15, 15, 15), output="output.svg", clip_circle=False):
     """Main pipeline: fetch data → project → write SVG."""
 
     style = STYLES.get(style_name, STYLES["default"])
@@ -235,8 +239,9 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
             print(f"CityPlot: {place}")
     else:
         print(f"CityPlot: {bbox}")
+    margin_top, margin_right, margin_bottom, margin_left = margins
     print(f"  Style: {style_name}, Paper: {paper} ({paper_w}×{paper_h}mm)")
-    print(f"  Radius: {radius}m")
+    print(f"  Radius: {radius}m, Margins: {margin_top}/{margin_right}/{margin_bottom}/{margin_left}mm")
 
     # ── Compute clip center in UTM ──
     clip_center_utm = None
@@ -310,7 +315,7 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
     for layer_name, (lines, cfg) in all_lines.items():
         group = dwg.g(id=layer_name)
 
-        transformed = transform_coords(lines, bounds, canvas_w, canvas_h, margin_mm)
+        transformed = transform_coords(lines, bounds, canvas_w, canvas_h, margins)
 
         for coords in transformed:
             if len(coords) < 2:
@@ -328,7 +333,7 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
                 d=path_data,
                 stroke=cfg["stroke"],
                 stroke_width=cfg["width"],
-                fill="none",
+                fill=cfg.get("fill", "none"),
                 stroke_linecap="round",
                 stroke_linejoin="round",
                 **extra,
@@ -343,13 +348,14 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
         minx, miny, maxx, maxy = bounds
         geo_w = maxx - minx
         geo_h = maxy - miny
-        draw_w = canvas_w - 2 * margin_mm
-        draw_h = canvas_h - 2 * margin_mm
+        margin_top, margin_right, margin_bottom, margin_left = margins
+        draw_w = canvas_w - margin_left - margin_right
+        draw_h = canvas_h - margin_top - margin_bottom
         scale = min(draw_w / geo_w, draw_h / geo_h) if geo_w and geo_h else 1
         r_svg = radius * scale if radius else min(draw_w, draw_h) / 2
         # Center of data on canvas
-        offset_x = margin_mm + (draw_w - geo_w * scale) / 2
-        offset_y = margin_mm + (draw_h - geo_h * scale) / 2
+        offset_x = margin_left + (draw_w - geo_w * scale) / 2
+        offset_y = margin_top + (draw_h - geo_h * scale) / 2
         cx_svg = offset_x + geo_w * scale / 2
         cy_svg = offset_y + geo_h * scale / 2
         dwg.add(dwg.circle(
@@ -376,7 +382,7 @@ def main():
     parser.add_argument("--radius", default="2000", help="Radius: meters (e.g. 2000) or km (e.g. 1.5k or 1.5km)")
     parser.add_argument("--style", choices=STYLES.keys(), default="default", help="Visual style preset")
     parser.add_argument("--paper", choices=PAPER_SIZES.keys(), default="a3l", help="Paper size (default: a3l)")
-    parser.add_argument("--margin", type=int, default=15, help="Margin in mm (default: 15)")
+    parser.add_argument("--margin", default="15", help="Margin in mm: single value (all sides), 2 values 'V,H', or 4 values 'top,right,bottom,left'")
     parser.add_argument("--output", "-o", default="output.svg", help="Output SVG file")
     parser.add_argument("--circle", action="store_true", help="Apply circular clip mask")
     parser.add_argument("--list-styles", action="store_true", help="List available styles")
@@ -402,6 +408,17 @@ def main():
         radius = int(float(radius_str))
     args.radius = radius
 
+    # Parse margins (top, right, bottom, left — CSS order)
+    margin_parts = [float(x) for x in args.margin.split(",")]
+    if len(margin_parts) == 1:
+        margins = (margin_parts[0],) * 4
+    elif len(margin_parts) == 2:
+        margins = (margin_parts[0], margin_parts[1], margin_parts[0], margin_parts[1])
+    elif len(margin_parts) == 4:
+        margins = tuple(margin_parts)
+    else:
+        parser.error("--margin: 1 value (all), 2 values (vertical,horizontal), or 4 values (top,right,bottom,left)")
+
     bbox = None
     if args.bbox:
         bbox = [float(x) for x in args.bbox.split(",")]
@@ -414,7 +431,7 @@ def main():
         radius=args.radius,
         style_name=args.style,
         paper=args.paper,
-        margin_mm=args.margin,
+        margins=margins,
         output=args.output,
         clip_circle=args.circle,
     )
