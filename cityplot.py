@@ -15,7 +15,7 @@ from pathlib import Path
 import osmnx as ox
 import geopandas as gpd
 import svgwrite
-from shapely.geometry import MultiLineString, LineString, Polygon, MultiPolygon
+from shapely.geometry import MultiLineString, LineString, Polygon, MultiPolygon, Point
 
 # Configure osmnx timeout (Overpass API can be slow for large queries)
 ox.settings.timeout = 60
@@ -152,8 +152,8 @@ def parse_center(place):
     return None
 
 
-def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None):
-    """Fetch OSM features as GeoDataFrame, projected to UTM."""
+def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None, clip_center_utm=None, clip_radius=None):
+    """Fetch OSM features as GeoDataFrame, projected to UTM and clipped to radius."""
     try:
         if bbox:
             west, south, east, north = bbox
@@ -174,6 +174,15 @@ def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None):
 
         # Project to UTM for metric coordinates
         gdf = ox.projection.project_gdf(gdf)
+
+        # Clip geometries to radius circle (prevents rivers/railways from extending bounds)
+        if clip_center_utm is not None and clip_radius is not None:
+            clip_circle = Point(clip_center_utm).buffer(clip_radius)
+            gdf = gdf.copy()
+            gdf["geometry"] = gdf["geometry"].intersection(clip_circle)
+            # Remove empty geometries after clipping
+            gdf = gdf[~gdf["geometry"].is_empty]
+
         return gdf
 
     except Exception as e:
@@ -207,13 +216,35 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
     print(f"  Style: {style_name}, Paper: {paper} ({paper_w}×{paper_h}mm)")
     print(f"  Radius: {radius}m")
 
+    # ── Compute clip center in UTM ──
+    clip_center_utm = None
+    if center:
+        geocenter = center
+    elif place:
+        geocenter = ox.geocode(place)
+    else:
+        geocenter = None
+
+    if geocenter and radius:
+        # Create a tiny GeoDataFrame to project the center point to UTM
+        center_gdf = gpd.GeoDataFrame(
+            geometry=[Point(geocenter[1], geocenter[0])],  # lon, lat
+            crs="EPSG:4326"
+        )
+        center_gdf = ox.projection.project_gdf(center_gdf)
+        cp = center_gdf.geometry.iloc[0]
+        clip_center_utm = (cp.x, cp.y)
+        print(f"  Clip center (UTM): {cp.x:.0f}, {cp.y:.0f}")
+
     # ── Fetch all layers ──
     all_lines = {}
     all_bounds = []
 
     for layer_name, layer_cfg in style["layers"].items():
         print(f"  Fetching {layer_name}...")
-        gdf = fetch_features(place=place, center=center, bbox=bbox, radius=radius, tags=layer_cfg["tags"])
+        gdf = fetch_features(place=place, center=center, bbox=bbox, radius=radius,
+                             tags=layer_cfg["tags"],
+                             clip_center_utm=clip_center_utm, clip_radius=radius)
 
         if gdf.empty:
             print(f"    → empty")
