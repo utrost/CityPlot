@@ -153,7 +153,8 @@ def parse_center(place):
 
 
 def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None,
-                   clip_center_utm=None, clip_radius=None, clip_circle=False):
+                   clip_center_utm=None, clip_radius=None, clip_circle=False,
+                   paper_aspect=1.0):
     """Fetch OSM features as GeoDataFrame, projected to UTM and clipped."""
     try:
         if bbox:
@@ -183,11 +184,20 @@ def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None,
                 clip_shape = Point(clip_center_utm).buffer(clip_radius)
             else:
                 # Rectangular clip matching paper aspect ratio
+                # Radius defines the shorter half-dimension
+                if paper_aspect >= 1:
+                    # Landscape: radius = half-height, width stretches
+                    half_h = clip_radius
+                    half_w = clip_radius * paper_aspect
+                else:
+                    # Portrait: radius = half-width, height stretches
+                    half_w = clip_radius
+                    half_h = clip_radius / paper_aspect
                 clip_shape = Polygon([
-                    (cx - clip_radius, cy - clip_radius),
-                    (cx + clip_radius, cy - clip_radius),
-                    (cx + clip_radius, cy + clip_radius),
-                    (cx - clip_radius, cy + clip_radius),
+                    (cx - half_w, cy - half_h),
+                    (cx + half_w, cy - half_h),
+                    (cx + half_w, cy + half_h),
+                    (cx - half_w, cy + half_h),
                 ])
             gdf = gdf.copy()
             gdf["geometry"] = gdf["geometry"].intersection(clip_shape)
@@ -209,6 +219,7 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
 
     style = STYLES.get(style_name, STYLES["default"])
     paper_w, paper_h = PAPER_SIZES.get(paper, PAPER_SIZES["a3l"])
+    paper_aspect = paper_w / paper_h  # >1 for landscape
 
     # Use mm as SVG units (1:1 for plotter)
     canvas_w = paper_w
@@ -257,7 +268,7 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
         gdf = fetch_features(place=place, center=center, bbox=bbox, radius=radius,
                              tags=layer_cfg["tags"],
                              clip_center_utm=clip_center_utm, clip_radius=radius,
-                             clip_circle=clip_circle)
+                             clip_circle=clip_circle, paper_aspect=paper_aspect)
 
         if gdf.empty:
             print(f"    → empty")
