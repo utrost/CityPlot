@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CityPlot</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+
+  .layout { display: flex; height: 100vh; }
+  .sidebar { width: 340px; min-width: 340px; padding: 24px; overflow-y: auto; background: #16213e; border-right: 1px solid #0f3460; display: flex; flex-direction: column; gap: 16px; }
+  .map-container { flex: 1; position: relative; }
+  #map { height: 100%; width: 100%; }
+
+  h1 { font-size: 20px; font-weight: 600; color: #e94560; letter-spacing: 1px; }
+  h1 span { color: #e0e0e0; font-weight: 300; }
+  .subtitle { font-size: 11px; color: #555; margin-top: 2px; }
+
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #888; }
+  .field input, .field select { background: #0f3460; border: 1px solid #1a4080; color: #e0e0e0; padding: 8px 10px; border-radius: 4px; font-size: 14px; }
+  .field input:focus, .field select:focus { outline: none; border-color: #e94560; }
+
+  .row { display: flex; gap: 10px; }
+  .row .field { flex: 1; }
+
+  .margins-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: auto auto auto; gap: 4px; align-items: center; }
+  .margins-grid input { width: 100%; text-align: center; }
+  .margins-grid .m-top { grid-column: 2; }
+  .margins-grid .m-left { grid-column: 1; grid-row: 2; }
+  .margins-grid .m-label { grid-column: 2; grid-row: 2; text-align: center; font-size: 11px; color: #555; }
+  .margins-grid .m-right { grid-column: 3; grid-row: 2; }
+  .margins-grid .m-bottom { grid-column: 2; grid-row: 3; }
+
+  .orientation-toggle { display: flex; gap: 4px; }
+  .orient-btn { flex: 1; background: #0f3460; border: 1px solid #1a4080; color: #888; padding: 7px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+  .orient-btn.active { background: #1a4080; color: #e0e0e0; border-color: #e94560; }
+  .orient-btn:hover { border-color: #e94560; }
+
+  .checkbox-row { display: flex; align-items: center; gap: 8px; }
+  .checkbox-row input[type="checkbox"] { accent-color: #e94560; width: 16px; height: 16px; }
+
+  .coords { font-size: 12px; color: #888; font-family: monospace; min-height: 18px; }
+
+  #generate-btn { background: #e94560; color: white; border: none; padding: 12px; border-radius: 4px; font-size: 15px; font-weight: 600; cursor: pointer; letter-spacing: 0.5px; transition: background 0.2s; }
+  #generate-btn:hover { background: #c73e54; }
+  #generate-btn:disabled { background: #555; cursor: not-allowed; }
+
+  #status { font-size: 13px; min-height: 20px; }
+  #status.error { color: #e94560; }
+  #status.success { color: #4ecca3; }
+
+  .progress-bar { height: 3px; background: #0f3460; border-radius: 2px; overflow: hidden; display: none; }
+  .progress-bar .fill { height: 100%; background: #e94560; width: 0%; transition: width 0.3s; }
+
+  #download-btn { display: none; background: #4ecca3; color: #1a1a2e; border: none; padding: 10px; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; text-align: center; }
+  #download-btn:hover { background: #3db893; }
+
+  .search-box { position: relative; }
+  .search-box input { width: 100%; }
+  #search-results { position: absolute; top: 100%; left: 0; right: 0; background: #0f3460; border: 1px solid #1a4080; border-top: none; border-radius: 0 0 4px 4px; max-height: 200px; overflow-y: auto; z-index: 1000; display: none; }
+  #search-results div { padding: 8px 10px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #1a4080; }
+  #search-results div:hover { background: #1a4080; }
+
+  .radius-display { display: flex; align-items: center; gap: 8px; }
+  .radius-display input[type="range"] { flex: 1; accent-color: #e94560; }
+  .radius-display .rv { min-width: 50px; text-align: right; font-family: monospace; font-size: 13px; }
+
+  .footer { font-size: 10px; color: #444; text-align: center; margin-top: auto; padding-top: 8px; }
+  .footer a { color: #555; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="sidebar">
+    <div>
+      <h1>City<span>Plot</span></h1>
+      <div class="subtitle">Plotter-ready SVGs from OpenStreetMap</div>
+    </div>
+
+    <div class="field search-box">
+      <label>Search Location</label>
+      <input type="text" id="search" placeholder="e.g. Bremen, Germany" autocomplete="off">
+      <div id="search-results"></div>
+    </div>
+
+    <div class="coords" id="coords">Click map or search to set center</div>
+
+    <div class="field">
+      <label>Radius</label>
+      <div class="radius-display">
+        <input type="range" id="radius" min="200" max="5000" step="100" value="1000">
+        <span class="rv" id="radius-value">1000m</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Style</label>
+        <select id="style">
+          <option value="default" selected>default</option>
+          <option value="minimal">minimal</option>
+          <option value="buildings">buildings</option>
+          <option value="mono">mono</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Paper</label>
+        <select id="paper">
+          <option value="a3">A3</option>
+          <option value="a4">A4</option>
+          <option value="letter">Letter</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Orientation</label>
+      <div class="orientation-toggle">
+        <button type="button" class="orient-btn active" data-orient="landscape">⬬ Landscape</button>
+        <button type="button" class="orient-btn" data-orient="portrait">▯ Portrait</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Margins (mm)</label>
+      <div class="margins-grid">
+        <input type="number" class="m-top" id="m-top" value="15" min="0" max="100">
+        <input type="number" class="m-left" id="m-left" value="15" min="0" max="100">
+        <div class="m-label">T/R/B/L</div>
+        <input type="number" class="m-right" id="m-right" value="15" min="0" max="100">
+        <input type="number" class="m-bottom" id="m-bottom" value="15" min="0" max="100">
+      </div>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="circle">
+      <label for="circle">Circular clip</label>
+    </div>
+
+    <button id="generate-btn" disabled>Select a location first</button>
+    <div class="progress-bar" id="progress"><div class="fill" id="progress-fill"></div></div>
+    <div id="status"></div>
+    <a id="download-btn" href="#">Download SVG</a>
+
+    <div class="footer">
+      <a href="https://github.com/utrost/CityPlot">GitHub</a> · AGPL-3.0 · by <a href="https://simiono.com">simiono</a>
+    </div>
+  </div>
+
+  <div class="map-container">
+    <div id="map"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9/dist/leaflet.js"></script>
+<script>
+// ── Config ──────────────────────────────────────────────────────────────
+const PAPER = {
+  a3:     [297, 420],
+  a4:     [210, 297],
+  letter: [216, 279],
+};
+
+const STYLES = {
+  default: {
+    streets_primary:   { tags: {highway: ["motorway","trunk","primary"]}, stroke:"#000", width:0.6 },
+    streets_secondary: { tags: {highway: ["secondary","tertiary"]}, stroke:"#000", width:0.35 },
+    streets_minor:     { tags: {highway: ["residential","living_street","unclassified","pedestrian"]}, stroke:"#000", width:0.15 },
+    water:             { tags: {natural: ["water"], waterway: ["river","canal","stream"]}, stroke:"#3366aa", width:0.15, fill:"#cce0f0" },
+    buildings:         { tags: {building: true}, stroke:"#666", width:0.1 },
+    parks:             { tags: {leisure: ["park"]}, stroke:"#228833", width:0.1, fill:"#d4edda" },
+    railway:           { tags: {railway: ["rail"]}, stroke:"#444", width:0.25, dasharray:"4,2" },
+  },
+  minimal: {
+    streets_primary:   { tags: {highway: ["motorway","trunk","primary"]}, stroke:"#000", width:0.5 },
+    streets_secondary: { tags: {highway: ["secondary","tertiary"]}, stroke:"#000", width:0.25 },
+    streets_minor:     { tags: {highway: ["residential","living_street","unclassified"]}, stroke:"#000", width:0.1 },
+    water:             { tags: {natural: ["water"], waterway: ["river","canal","stream"]}, stroke:"#000", width:0.15, fill:"#e0e0e0" },
+  },
+  buildings: {
+    buildings:         { tags: {building: true}, stroke:"#000", width:0.1 },
+    streets_primary:   { tags: {highway: ["motorway","trunk","primary","secondary"]}, stroke:"#000", width:0.3 },
+    water:             { tags: {natural: ["water"], waterway: ["river","canal","stream"]}, stroke:"#000", width:0.15, fill:"#e0e0e0" },
+  },
+  mono: {
+    streets_primary:   { tags: {highway: ["motorway","trunk","primary"]}, stroke:"#000", width:0.6 },
+    streets_secondary: { tags: {highway: ["secondary","tertiary"]}, stroke:"#000", width:0.35 },
+    streets_minor:     { tags: {highway: ["residential","living_street","unclassified","pedestrian"]}, stroke:"#000", width:0.15 },
+    water:             { tags: {natural: ["water"], waterway: ["river","canal","stream"]}, stroke:"#000", width:0.15, fill:"#e0e0e0" },
+    buildings:         { tags: {building: true}, stroke:"#000", width:0.1 },
+    parks:             { tags: {leisure: ["park"]}, stroke:"#000", width:0.1, fill:"#e0e0e0" },
+    railway:           { tags: {railway: ["rail"]}, stroke:"#000", width:0.25, dasharray:"4,2" },
+  },
+};
+
+// ── State ───────────────────────────────────────────────────────────────
+let selectedLat = null, selectedLon = null;
+let orientation = 'landscape';
+let marker = null, previewShape = null;
+
+// ── Map ─────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([53.075, 8.807], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap', maxZoom: 19
+}).addTo(map);
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+function getPaperDims() {
+  const base = document.getElementById('paper').value;
+  const [w, h] = PAPER[base];
+  return orientation === 'landscape' ? { w: h, h: w } : { w, h };
+}
+
+function updatePreview() {
+  const radius = parseInt(document.getElementById('radius').value);
+  const isCircle = document.getElementById('circle').checked;
+  const dims = getPaperDims();
+  const aspect = dims.w / dims.h;
+
+  if (!selectedLat) return;
+  if (previewShape) map.removeLayer(previewShape);
+
+  if (isCircle) {
+    previewShape = L.circle([selectedLat, selectedLon], {
+      radius, color: '#e94560', weight: 1.5, fillOpacity: 0.08, dashArray: '6,4'
+    }).addTo(map);
+  } else {
+    const halfH = radius;
+    const halfW = aspect >= 1 ? radius * aspect : radius;
+    const halfHR = aspect >= 1 ? radius : radius / aspect;
+    const mPerDeg = 111320;
+    const latD = halfHR / mPerDeg;
+    const lonD = halfW / (mPerDeg * Math.cos(selectedLat * Math.PI / 180));
+    previewShape = L.rectangle([
+      [selectedLat - latD, selectedLon - lonD],
+      [selectedLat + latD, selectedLon + lonD]
+    ], { color: '#e94560', weight: 1.5, fillOpacity: 0.08, dashArray: '6,4' }).addTo(map);
+  }
+}
+
+function setLocation(lat, lon) {
+  selectedLat = lat; selectedLon = lon;
+  if (marker) map.removeLayer(marker);
+  marker = L.marker([lat, lon]).addTo(map);
+  document.getElementById('coords').textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+  document.getElementById('generate-btn').disabled = false;
+  document.getElementById('generate-btn').textContent = 'Generate SVG';
+  updatePreview();
+}
+
+// ── Map click ───────────────────────────────────────────────────────────
+map.on('click', e => { setLocation(e.latlng.lat, e.latlng.lng); map.setView(e.latlng); });
+
+// ── Search ──────────────────────────────────────────────────────────────
+let searchTimeout;
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimeout);
+  const q = searchInput.value.trim();
+  if (q.length < 3) { searchResults.style.display = 'none'; return; }
+  searchTimeout = setTimeout(async () => {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5`);
+    const data = await res.json();
+    searchResults.innerHTML = '';
+    if (!data.length) { searchResults.style.display = 'none'; return; }
+    data.forEach(item => {
+      const div = document.createElement('div');
+      div.textContent = item.display_name;
+      div.addEventListener('click', () => {
+        setLocation(parseFloat(item.lat), parseFloat(item.lon));
+        map.setView([parseFloat(item.lat), parseFloat(item.lon)], 14);
+        searchResults.style.display = 'none';
+        searchInput.value = item.display_name.split(',')[0];
+      });
+      searchResults.appendChild(div);
+    });
+    searchResults.style.display = 'block';
+  }, 300);
+});
+document.addEventListener('click', e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput) searchResults.style.display = 'none';
+});
+
+// ── UI events ───────────────────────────────────────────────────────────
+document.getElementById('radius').addEventListener('input', () => {
+  const v = parseInt(document.getElementById('radius').value);
+  document.getElementById('radius-value').textContent = v >= 1000 ? `${(v/1000).toFixed(1)}km` : `${v}m`;
+  updatePreview();
+});
+['paper', 'style'].forEach(id => document.getElementById(id).addEventListener('change', updatePreview));
+document.getElementById('circle').addEventListener('change', updatePreview);
+document.querySelectorAll('.orient-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.orient-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    orientation = btn.dataset.orient;
+    updatePreview();
+  });
+});
+
+// ── Overpass Query Builder ──────────────────────────────────────────────
+function buildOverpassQuery(lat, lon, radius, tags) {
+  // Build bounding box from center + radius (approximate)
+  const mPerDeg = 111320;
+  const dLat = (radius * 1.2) / mPerDeg; // 20% buffer for clipping
+  const dLon = (radius * 1.2) / (mPerDeg * Math.cos(lat * Math.PI / 180));
+  const bbox = `${lat - dLat},${lon - dLon},${lat + dLat},${lon + dLon}`;
+
+  let filters = [];
+  for (const [key, vals] of Object.entries(tags)) {
+    if (vals === true) {
+      filters.push(`["${key}"]`);
+    } else if (Array.isArray(vals)) {
+      const regex = vals.join('|');
+      filters.push(`["${key}"~"^(${regex})$"]`);
+    }
+  }
+  const f = filters.join('');
+
+  return `[out:json][timeout:30][bbox:${bbox}];(way${f};relation${f};);out geom;`;
+}
+
+// ── Geometry Processing ─────────────────────────────────────────────────
+function extractPaths(elements) {
+  const paths = [];
+  for (const el of elements) {
+    if (el.type === 'way' && el.geometry) {
+      paths.push(el.geometry.map(p => [p.lon, p.lat]));
+    } else if (el.type === 'relation' && el.members) {
+      for (const member of el.members) {
+        if (member.geometry) {
+          paths.push(member.geometry.map(p => [p.lon, p.lat]));
+        }
+      }
+    }
+  }
+  return paths;
+}
+
+function projectPaths(paths, centerLat) {
+  // Equirectangular projection with cos(lat) correction — accurate at city scale
+  const scale = Math.cos(centerLat * Math.PI / 180);
+  return paths.map(path => path.map(([lon, lat]) => [lon * scale * 111320, lat * 111320]));
+}
+
+function clipPathsRect(paths, cx, cy, halfW, halfH) {
+  const clipped = [];
+  for (const path of paths) {
+    const segments = clipLineToRect(path, cx - halfW, cy - halfH, cx + halfW, cy + halfH);
+    clipped.push(...segments);
+  }
+  return clipped;
+}
+
+function clipLineToRect(coords, minX, minY, maxX, maxY) {
+  // Simple: keep points inside, split at boundaries
+  const segments = [];
+  let current = [];
+
+  for (const [x, y] of coords) {
+    const inside = x >= minX && x <= maxX && y >= minY && y <= maxY;
+    if (inside) {
+      current.push([x, y]);
+    } else {
+      if (current.length > 0) {
+        // Add edge intersection point
+        current.push(clipPoint(current[current.length - 1], [x, y], minX, minY, maxX, maxY));
+        if (current.length >= 2) segments.push(current);
+        current = [];
+      }
+    }
+  }
+  if (current.length >= 2) segments.push(current);
+  // Handle closed polygons (buildings, parks)
+  if (coords.length > 2 && current.length >= 2) {
+    const first = coords[0], last = coords[coords.length - 1];
+    if (Math.abs(first[0] - last[0]) < 0.01 && Math.abs(first[1] - last[1]) < 0.01) {
+      // It's a closed shape, keep it as-is if it has enough points
+    }
+  }
+  return segments;
+}
+
+function clipPoint(inside, outside, minX, minY, maxX, maxY) {
+  // Simple clamp (good enough for visual output)
+  return [
+    Math.max(minX, Math.min(maxX, outside[0])),
+    Math.max(minY, Math.min(maxY, outside[1]))
+  ];
+}
+
+function clipPathsCircle(paths, cx, cy, r) {
+  const r2 = r * r;
+  return paths.map(path => path.filter(([x, y]) => {
+    const dx = x - cx, dy = y - cy;
+    return dx * dx + dy * dy <= r2;
+  })).filter(p => p.length >= 2);
+}
+
+// ── SVG Generation ──────────────────────────────────────────────────────
+function generateSVG(layerData, params) {
+  const { paperW, paperH, margins, isCircle, radius } = params;
+  const [mTop, mRight, mBottom, mLeft] = margins;
+
+  // Compute global bounds from all clipped paths
+  let allX = [], allY = [];
+  for (const { paths } of Object.values(layerData)) {
+    for (const path of paths) {
+      for (const [x, y] of path) { allX.push(x); allY.push(y); }
+    }
+  }
+  if (!allX.length) return null;
+
+  const minX = Math.min(...allX), maxX = Math.max(...allX);
+  const minY = Math.min(...allY), maxY = Math.max(...allY);
+  const geoW = maxX - minX || 1;
+  const geoH = maxY - minY || 1;
+
+  const drawW = paperW - mLeft - mRight;
+  const drawH = paperH - mTop - mBottom;
+  const scale = Math.min(drawW / geoW, drawH / geoH);
+
+  const offX = mLeft + (drawW - geoW * scale) / 2;
+  const offY = mTop + (drawH - geoH * scale) / 2;
+
+  function tx(x) { return (offX + (x - minX) * scale).toFixed(2); }
+  function ty(y) { return (offY + (maxY - y) * scale).toFixed(2); }
+
+  let svg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+  svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${paperW}mm" height="${paperH}mm" viewBox="0 0 ${paperW} ${paperH}">\n`;
+
+  // Layers
+  for (const [name, { paths, cfg }] of Object.entries(layerData)) {
+    svg += `  <g id="${name}">\n`;
+    for (const path of paths) {
+      if (path.length < 2) continue;
+      let d = `M ${tx(path[0][0])},${ty(path[0][1])}`;
+      for (let i = 1; i < path.length; i++) {
+        d += ` L ${tx(path[i][0])},${ty(path[i][1])}`;
+      }
+      const fill = cfg.fill || 'none';
+      let extra = '';
+      if (cfg.dasharray) extra += ` stroke-dasharray="${cfg.dasharray}"`;
+      svg += `    <path d="${d}" stroke="${cfg.stroke}" stroke-width="${cfg.width}" fill="${fill}" stroke-linecap="round" stroke-linejoin="round"${extra}/>\n`;
+    }
+    svg += `  </g>\n`;
+  }
+
+  // Circle border
+  if (isCircle && radius) {
+    const rSvg = (radius * scale).toFixed(2);
+    const cxSvg = (offX + geoW * scale / 2).toFixed(2);
+    const cySvg = (offY + geoH * scale / 2).toFixed(2);
+    svg += `  <circle cx="${cxSvg}" cy="${cySvg}" r="${rSvg}" stroke="#000" stroke-width="0.3" fill="none"/>\n`;
+  }
+
+  svg += `</svg>`;
+  return svg;
+}
+
+// ── Main Generate ───────────────────────────────────────────────────────
+document.getElementById('generate-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('generate-btn');
+  const status = document.getElementById('status');
+  const progress = document.getElementById('progress');
+  const progressFill = document.getElementById('progress-fill');
+  const dlBtn = document.getElementById('download-btn');
+
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  dlBtn.style.display = 'none';
+  progress.style.display = 'block';
+  progressFill.style.width = '0%';
+
+  const radius = parseInt(document.getElementById('radius').value);
+  const styleName = document.getElementById('style').value;
+  const isCircle = document.getElementById('circle').checked;
+  const dims = getPaperDims();
+  const aspect = dims.w / dims.h;
+  const margins = [
+    parseFloat(document.getElementById('m-top').value),
+    parseFloat(document.getElementById('m-right').value),
+    parseFloat(document.getElementById('m-bottom').value),
+    parseFloat(document.getElementById('m-left').value),
+  ];
+
+  const style = STYLES[styleName];
+  const layerNames = Object.keys(style);
+  const layerData = {};
+  let totalPaths = 0;
+
+  // Project center
+  const cosLat = Math.cos(selectedLat * Math.PI / 180);
+  const cx = selectedLon * cosLat * 111320;
+  const cy = selectedLat * 111320;
+
+  // Clip dimensions
+  let halfW, halfH;
+  if (isCircle) {
+    halfW = halfH = radius;
+  } else if (aspect >= 1) {
+    halfH = radius;
+    halfW = radius * aspect;
+  } else {
+    halfW = radius;
+    halfH = radius / aspect;
+  }
+
+  try {
+    for (let i = 0; i < layerNames.length; i++) {
+      const name = layerNames[i];
+      const cfg = style[name];
+      status.textContent = `Fetching ${name}...`;
+      status.className = '';
+      progressFill.style.width = `${((i) / layerNames.length * 80)}%`;
+
+      const query = buildOverpassQuery(selectedLat, selectedLon, Math.max(halfW, halfH), cfg.tags);
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: `data=${encodeURIComponent(query)}`,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+
+      if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
+      const data = await res.json();
+
+      let paths = extractPaths(data.elements);
+      paths = projectPaths(paths, selectedLat);
+
+      // Clip
+      if (isCircle) {
+        paths = clipPathsCircle(paths, cx, cy, radius);
+      } else {
+        paths = clipPathsRect(paths, cx, cy, halfW, halfH);
+      }
+
+      if (paths.length > 0) {
+        layerData[name] = { paths, cfg };
+        totalPaths += paths.length;
+      }
+      status.textContent = `${name}: ${paths.length} paths`;
+    }
+
+    progressFill.style.width = '90%';
+    status.textContent = 'Rendering SVG...';
+
+    const svg = generateSVG(layerData, {
+      paperW: dims.w, paperH: dims.h,
+      margins, isCircle, radius
+    });
+
+    if (!svg) throw new Error('No data found for this area');
+
+    progressFill.style.width = '100%';
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const sizeKB = Math.round(blob.size / 1024);
+
+    dlBtn.href = url;
+    dlBtn.download = 'cityplot.svg';
+    dlBtn.style.display = 'block';
+    dlBtn.textContent = `Download SVG (${sizeKB} KB)`;
+
+    status.textContent = `Done — ${totalPaths} paths, ${sizeKB} KB`;
+    status.className = 'success';
+
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    status.className = 'error';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Generate SVG';
+  setTimeout(() => { progress.style.display = 'none'; }, 1000);
+});
+</script>
+</body>
+</html>
