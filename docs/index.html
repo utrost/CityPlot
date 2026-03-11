@@ -304,13 +304,7 @@ document.querySelectorAll('.orient-btn').forEach(btn => {
 });
 
 // ── Overpass Query Builder ──────────────────────────────────────────────
-function buildOverpassQuery(lat, lon, radius, tags) {
-  // Build bounding box from center + radius (approximate)
-  const mPerDeg = 111320;
-  const dLat = (radius * 1.2) / mPerDeg; // 20% buffer for clipping
-  const dLon = (radius * 1.2) / (mPerDeg * Math.cos(lat * Math.PI / 180));
-  const bbox = `${lat - dLat},${lon - dLon},${lat + dLat},${lon + dLon}`;
-
+function buildTagFilter(tags) {
   let filters = [];
   for (const [key, vals] of Object.entries(tags)) {
     if (vals === true) {
@@ -320,9 +314,43 @@ function buildOverpassQuery(lat, lon, radius, tags) {
       filters.push(`["${key}"~"^(${regex})$"]`);
     }
   }
-  const f = filters.join('');
+  return filters.join('');
+}
 
-  return `[out:json][timeout:30][bbox:${bbox}];(way${f};relation${f};);out geom;`;
+function buildCombinedQuery(lat, lon, radius, style) {
+  // Single query for all layers — avoids rate limiting
+  const mPerDeg = 111320;
+  const dLat = (radius * 1.2) / mPerDeg;
+  const dLon = (radius * 1.2) / (mPerDeg * Math.cos(lat * Math.PI / 180));
+  const bbox = `${lat - dLat},${lon - dLon},${lat + dLat},${lon + dLon}`;
+
+  // Collect unique tag filters across all layers
+  const unions = [];
+  for (const [name, cfg] of Object.entries(style)) {
+    const f = buildTagFilter(cfg.tags);
+    unions.push(`way${f};relation${f};`);
+  }
+
+  return `[out:json][timeout:60][bbox:${bbox}];(${unions.join('')});out geom;`;
+}
+
+function classifyElement(el, style) {
+  // Determine which layer(s) an element belongs to based on its tags
+  const matched = [];
+  for (const [layerName, cfg] of Object.entries(style)) {
+    for (const [key, vals] of Object.entries(cfg.tags)) {
+      if (!(key in el.tags)) continue;
+      const tagVal = el.tags[key];
+      if (vals === true) {
+        matched.push(layerName);
+        break;
+      } else if (Array.isArray(vals) && vals.includes(tagVal)) {
+        matched.push(layerName);
+        break;
+      }
+    }
+  }
+  return matched;
 }
 
 // ── Geometry Processing ─────────────────────────────────────────────────
@@ -512,27 +540,47 @@ document.getElementById('generate-btn').addEventListener('click', async () => {
   }
 
   try {
+    // Single combined Overpass query for all layers
+    status.textContent = 'Fetching OSM data...';
+    status.className = '';
+    progressFill.style.width = '10%';
+
+    const query = buildCombinedQuery(selectedLat, selectedLon, Math.max(halfW, halfH), style);
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: `data=${encodeURIComponent(query)}`,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+
+    if (!res.ok) {
+      if (res.status === 429) throw new Error('Overpass API rate limit — please wait a moment and try again');
+      throw new Error(`Overpass API error: ${res.status}`);
+    }
+    const data = await res.json();
+    progressFill.style.width = '50%';
+    status.textContent = `Processing ${data.elements.length} elements...`;
+
+    // Classify elements into layers
+    const layerElements = {};
+    for (const name of layerNames) layerElements[name] = [];
+
+    for (const el of data.elements) {
+      if (!el.tags) continue;
+      const layers = classifyElement(el, style);
+      for (const name of layers) {
+        if (layerElements[name]) layerElements[name].push(el);
+      }
+    }
+
+    // Extract, project, and clip per layer
     for (let i = 0; i < layerNames.length; i++) {
       const name = layerNames[i];
       const cfg = style[name];
-      status.textContent = `Fetching ${name}...`;
-      status.className = '';
-      progressFill.style.width = `${((i) / layerNames.length * 80)}%`;
+      progressFill.style.width = `${50 + (i / layerNames.length * 30)}%`;
 
-      const query = buildOverpassQuery(selectedLat, selectedLon, Math.max(halfW, halfH), cfg.tags);
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: `data=${encodeURIComponent(query)}`,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-
-      if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
-      const data = await res.json();
-
-      let paths = extractPaths(data.elements);
+      let paths = extractPaths(layerElements[name]);
       paths = projectPaths(paths, selectedLat);
 
-      // Clip
       if (isCircle) {
         paths = clipPathsCircle(paths, cx, cy, radius);
       } else {
