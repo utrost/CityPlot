@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check syntax (py_compile)
+        run: |
+          python -m py_compile cityplot.py
+          python -m py_compile web.py
+          echo "Syntax OK ✓"
+
+      - name: Import check
+        run: |
+          python -c "import cityplot; print('cityplot imports OK ✓')"
+          python -c "import web; print('web imports OK ✓')"
+
+      - name: Validate HTML
+        run: |
+          for f in templates/index.html docs/index.html; do
+            test -f "$f" && echo "Valid: $f ✓"
+          done
