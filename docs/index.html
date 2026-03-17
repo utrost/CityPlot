@@ -503,12 +503,19 @@ function generateSVG(layerData, params) {
   function tx(x) { return (offX + (x - minX) * scale).toFixed(2); }
   function ty(y) { return (offY + (maxY - y) * scale).toFixed(2); }
 
+  const LAYER_LABELS = {
+    streets_primary: 'Primary Streets', streets_secondary: 'Secondary Streets',
+    streets_minor: 'Minor Streets', water: 'Water', buildings: 'Buildings',
+    parks: 'Parks', railway: 'Railway'
+  };
+
   let svg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${paperW}mm" height="${paperH}mm" viewBox="0 0 ${paperW} ${paperH}">\n`;
+  svg += `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${paperW}mm" height="${paperH}mm" viewBox="0 0 ${paperW} ${paperH}">\n`;
 
   // Layers
   for (const [name, { paths, cfg }] of Object.entries(layerData)) {
-    svg += `  <g id="${name}">\n`;
+    const label = LAYER_LABELS[name] || name;
+    svg += `  <g id="${name}" inkscape:groupmode="layer" inkscape:label="${label}">\n`;
     for (const path of paths) {
       if (path.length < 2) continue;
       let d = `M ${tx(path[0][0])},${ty(path[0][1])}`;
