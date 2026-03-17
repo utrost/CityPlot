@@ -355,6 +355,12 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
             for x, y in coords[1:]:
                 path_data += f" L {x},{y}"
 
+            # Close polygon paths (first ≈ last point, or layer has fill)
+            is_closed = (coords[0][0] == coords[-1][0] and coords[0][1] == coords[-1][1])
+            has_fill = cfg.get("fill", "none") != "none"
+            if is_closed or has_fill:
+                path_data += " Z"
+
             extra = {}
             if "dasharray" in cfg:
                 extra["stroke_dasharray"] = cfg["dasharray"]

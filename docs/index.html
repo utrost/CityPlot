@@ -533,7 +533,11 @@ function generateSVG(layerData, params) {
       for (let i = 1; i < path.length; i++) {
         d += ` L ${tx(path[i][0])},${ty(path[i][1])}`;
       }
+      // Close polygon paths for proper fill/hatch
+      const first = path[0], last = path[path.length - 1];
+      const isClosed = (first[0] === last[0] && first[1] === last[1]);
       const fill = cfg.fill || 'none';
+      if (isClosed || fill !== 'none') d += ' Z';
       let extra = '';
       if (cfg.dasharray) extra += ` stroke-dasharray="${cfg.dasharray}"`;
       svg += `    <path d="${d}" stroke="${cfg.stroke}" stroke-width="${cfg.width}" fill="${fill}" stroke-linecap="round" stroke-linejoin="round"${extra}/>\n`;
