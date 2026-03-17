@@ -20,6 +20,20 @@ from shapely.geometry import MultiLineString, LineString, Polygon, MultiPolygon,
 # Configure osmnx timeout (Overpass API can be slow for large queries)
 ox.settings.timeout = 60
 
+# Inkscape namespace for layer support
+INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape"
+
+# Human-readable layer labels
+LAYER_LABELS = {
+    "streets_primary":   "Primary Streets",
+    "streets_secondary": "Secondary Streets",
+    "streets_minor":     "Minor Streets",
+    "water":             "Water",
+    "buildings":         "Buildings",
+    "parks":             "Parks",
+    "railway":           "Railway",
+}
+
 
 # ── Style Presets ────────────────────────────────────────────────────────────
 
@@ -318,12 +332,18 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
         viewBox=f"0 0 {canvas_w} {canvas_h}",
     )
 
+    # Register Inkscape namespace for layer support
+    dwg.attribs['xmlns:inkscape'] = INKSCAPE_NS
+
     # Background (optional, comment out for transparent)
     # dwg.add(dwg.rect(insert=(0, 0), size=(canvas_w, canvas_h), fill="white"))
 
     # ── Render layers ──
     for layer_name, (lines, cfg) in all_lines.items():
+        label = LAYER_LABELS.get(layer_name, layer_name)
         group = dwg.g(id=layer_name)
+        group.attribs['inkscape:groupmode'] = 'layer'
+        group.attribs['inkscape:label'] = label
 
         transformed = transform_coords(lines, bounds, canvas_w, canvas_h, margins)
 
