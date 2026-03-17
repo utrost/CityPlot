@@ -369,10 +369,21 @@ function buildCombinedQuery(lat, lon, radius, style) {
   const bbox = `${lat - dLat},${lon - dLon},${lat + dLat},${lon + dLon}`;
 
   // Collect unique tag filters across all layers
+  // Each tag key becomes a separate union to avoid AND between unrelated keys
   const unions = [];
   for (const [name, cfg] of Object.entries(style)) {
-    const f = buildTagFilter(cfg.tags);
-    unions.push(`way${f};relation${f};`);
+    for (const [key, vals] of Object.entries(cfg.tags)) {
+      let f;
+      if (vals === true) {
+        f = `["${key}"]`;
+      } else if (Array.isArray(vals)) {
+        const regex = vals.join('|');
+        f = `["${key}"~"^(${regex})$"]`;
+      } else {
+        f = `["${key}"="${vals}"]`;
+      }
+      unions.push(`way${f};relation${f};`);
+    }
   }
 
   return `[out:json][timeout:60][bbox:${bbox}];(${unions.join('')});out geom;`;
