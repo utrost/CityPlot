@@ -38,41 +38,44 @@ LAYER_LABELS = {
 # ── Style Presets ────────────────────────────────────────────────────────────
 
 STYLES = {
+    # Stroke widths calibrated from Axidraw plotter test (2026-03-19):
+    # Buildings 0.1mm, minor streets 0.2mm, secondary 0.4mm,
+    # primary+railway 0.8mm, water 1.0mm, parks 0.6mm
     "default": {
         "layers": {
-            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.6},
-            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.35},
-            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.15},
-            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#3366aa", "width": 0.15, "fill": "#cce0f0"},
+            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.8},
+            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.4},
+            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.2},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#3366aa", "width": 1.0, "fill": "#cce0f0"},
             "buildings":         {"tags": {"building": True}, "stroke": "#666666", "width": 0.1},
-            "parks":             {"tags": {"leisure": "park"}, "stroke": "#228833", "width": 0.1, "fill": "#d4edda"},
-            "railway":           {"tags": {"railway": "rail"}, "stroke": "#444444", "width": 0.25, "dasharray": "4,2"},
+            "parks":             {"tags": {"leisure": "park"}, "stroke": "#228833", "width": 0.6, "fill": "#d4edda"},
+            "railway":           {"tags": {"railway": "rail"}, "stroke": "#444444", "width": 0.8, "dasharray": "4,2"},
         },
     },
     "minimal": {
         "layers": {
-            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.5},
-            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.25},
-            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified"]}, "stroke": "#000000", "width": 0.1},
-            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.15, "fill": "#e0e0e0"},
+            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.8},
+            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.4},
+            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified"]}, "stroke": "#000000", "width": 0.2},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 1.0, "fill": "#e0e0e0"},
         },
     },
     "buildings": {
         "layers": {
             "buildings":         {"tags": {"building": True}, "stroke": "#000000", "width": 0.1},
-            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary", "secondary"]}, "stroke": "#000000", "width": 0.3},
-            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.15, "fill": "#e0e0e0"},
+            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary", "secondary"]}, "stroke": "#000000", "width": 0.8},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 1.0, "fill": "#e0e0e0"},
         },
     },
     "mono": {
         "layers": {
-            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.6},
-            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.35},
-            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.15},
-            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 0.15, "fill": "#e0e0e0"},
+            "streets_primary":   {"tags": {"highway": ["motorway", "trunk", "primary"]}, "stroke": "#000000", "width": 0.8},
+            "streets_secondary": {"tags": {"highway": ["secondary", "tertiary"]}, "stroke": "#000000", "width": 0.4},
+            "streets_minor":     {"tags": {"highway": ["residential", "living_street", "unclassified", "pedestrian"]}, "stroke": "#000000", "width": 0.2},
+            "water":             {"tags": {"natural": "water", "waterway": ["river", "canal", "stream"]}, "stroke": "#000000", "width": 1.0, "fill": "#e0e0e0"},
             "buildings":         {"tags": {"building": True}, "stroke": "#000000", "width": 0.1},
-            "parks":             {"tags": {"leisure": "park"}, "stroke": "#000000", "width": 0.1, "fill": "#e0e0e0"},
-            "railway":           {"tags": {"railway": "rail"}, "stroke": "#000000", "width": 0.25, "dasharray": "4,2"},
+            "parks":             {"tags": {"leisure": "park"}, "stroke": "#000000", "width": 0.6, "fill": "#e0e0e0"},
+            "railway":           {"tags": {"railway": "rail"}, "stroke": "#000000", "width": 0.8, "dasharray": "4,2"},
         },
     },
 }
