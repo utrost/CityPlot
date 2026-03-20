@@ -333,6 +333,7 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
         output,
         size=(f"{canvas_w}mm", f"{canvas_h}mm"),
         viewBox=f"0 0 {canvas_w} {canvas_h}",
+        debug=False,
     )
 
     # Register Inkscape namespace for layer support

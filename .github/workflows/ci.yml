@@ -18,7 +18,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Check syntax (py_compile)
         run: |
@@ -30,6 +30,9 @@ jobs:
         run: |
           python -c "import cityplot; print('cityplot imports OK ✓')"
           python -c "import web; print('web imports OK ✓')"
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
 
       - name: Validate HTML
         run: |
