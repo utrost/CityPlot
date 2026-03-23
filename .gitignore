@@ -5,3 +5,5 @@ __pycache__/
 !examples/*.svg
 !images/*.svg
 cache/
+.coverage
+htmlcov/
