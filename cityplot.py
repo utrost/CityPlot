@@ -157,6 +157,115 @@ def transform_coords(lines, bounds, canvas_w, canvas_h, margins):
     return transformed
 
 
+def optimize_path_order(paths):
+    """Reorder paths using nearest-neighbor heuristic to minimize pen travel.
+    
+    Uses a KD-tree for O(n log n) lookups. For each path, considers both
+    normal and reversed direction, picking whichever start/end point is
+    closest to the current pen position.
+    """
+    if len(paths) <= 1:
+        return paths
+
+    valid = [p for p in paths if len(p) >= 2]
+    if not valid:
+        return paths
+
+    try:
+        from scipy.spatial import KDTree
+        return _optimize_kdtree(valid)
+    except ImportError:
+        return _optimize_naive(valid)
+
+
+def _optimize_kdtree(valid):
+    """Fast path optimization using scipy KD-tree."""
+    from scipy.spatial import KDTree
+    import numpy as np
+
+    n = len(valid)
+    # Build points array: [start0, end0, start1, end1, ...]
+    # Index i*2 = start of path i, i*2+1 = end of path i
+    points = np.empty((n * 2, 2))
+    for i, p in enumerate(valid):
+        points[i * 2] = p[0]
+        points[i * 2 + 1] = p[-1]
+
+    tree = KDTree(points)
+    used = set()
+    ordered = []
+
+    # Start with path 0
+    used.add(0)
+    ordered.append(valid[0])
+    pen = np.array(valid[0][-1])
+
+    for _ in range(n - 1):
+        # Query increasing number of neighbors until we find an unused path
+        k = min(10, n * 2)
+        while True:
+            dists, idxs = tree.query(pen, k=k)
+            if isinstance(dists, float):
+                dists, idxs = [dists], [idxs]
+            found = False
+            for dist, idx in zip(dists, idxs):
+                path_idx = idx // 2
+                if path_idx not in used:
+                    is_end = (idx % 2 == 1)  # matched the end point → reverse
+                    path = valid[path_idx]
+                    if is_end:
+                        path = list(reversed(path))
+                    ordered.append(path)
+                    pen = np.array(path[-1])
+                    used.add(path_idx)
+                    found = True
+                    break
+            if found:
+                break
+            k = min(k * 2, n * 2)
+
+    return ordered
+
+
+def _optimize_naive(valid):
+    """Fallback O(n²) nearest-neighbor without scipy."""
+    remaining = set(range(len(valid)))
+    ordered = []
+
+    current_idx = 0
+    remaining.remove(current_idx)
+    ordered.append(valid[current_idx])
+    pen = valid[current_idx][-1]
+
+    while remaining:
+        best_dist = float('inf')
+        best_idx = next(iter(remaining))
+        best_reverse = False
+
+        for idx in remaining:
+            p = valid[idx]
+            d_start = (pen[0] - p[0][0]) ** 2 + (pen[1] - p[0][1]) ** 2
+            d_end = (pen[0] - p[-1][0]) ** 2 + (pen[1] - p[-1][1]) ** 2
+
+            if d_start < best_dist:
+                best_dist = d_start
+                best_idx = idx
+                best_reverse = False
+            if d_end < best_dist:
+                best_dist = d_end
+                best_idx = idx
+                best_reverse = True
+
+        path = valid[best_idx]
+        if best_reverse:
+            path = list(reversed(path))
+        ordered.append(path)
+        pen = path[-1]
+        remaining.remove(best_idx)
+
+    return ordered
+
+
 # ── Data Fetching ────────────────────────────────────────────────────────────
 
 def parse_center(place):
@@ -350,6 +459,7 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
         group.attribs['inkscape:label'] = label
 
         transformed = transform_coords(lines, bounds, canvas_w, canvas_h, margins)
+        transformed = optimize_path_order(transformed)
 
         for coords in transformed:
             if len(coords) < 2:
