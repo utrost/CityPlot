@@ -18,7 +18,7 @@ import svgwrite
 from shapely.geometry import MultiLineString, LineString, Polygon, MultiPolygon, Point
 
 # Configure osmnx timeout (Overpass API can be slow for large queries)
-ox.settings.timeout = 60
+ox.settings.timeout = 180
 
 # Inkscape namespace for layer support
 INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape"

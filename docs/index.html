@@ -12,7 +12,7 @@
   .layout { display: flex; height: 100vh; }
   .sidebar { width: 340px; min-width: 340px; padding: 24px; overflow-y: auto; background: #16213e; border-right: 1px solid #0f3460; display: flex; flex-direction: column; gap: 16px; }
   .map-container { flex: 1; position: relative; }
-  #map { height: 100%; width: 100%; }
+  #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
 
   h1 { font-size: 20px; font-weight: 600; color: #e94560; letter-spacing: 1px; }
   h1 span { color: #e0e0e0; font-weight: 300; }
@@ -284,10 +284,16 @@ searchInput.addEventListener('input', () => {
       const div = document.createElement('div');
       div.textContent = item.display_name;
       div.addEventListener('click', () => {
-        setLocation(parseFloat(item.lat), parseFloat(item.lon));
-        map.setView([parseFloat(item.lat), parseFloat(item.lon)], 14);
+        const lat = parseFloat(item.lat);
+        const lon = parseFloat(item.lon);
         searchResults.style.display = 'none';
         searchInput.value = item.display_name.split(',')[0];
+
+        map.flyTo([lat, lon], 14, { duration: 0.5 });
+        setLocation(lat, lon);
+        
+        // Ensure Leaflet recalculates correctly after DOM updates
+        setTimeout(() => map.invalidateSize(), 300);
       });
       searchResults.appendChild(div);
     });
@@ -386,7 +392,7 @@ function buildCombinedQuery(lat, lon, radius, style) {
     }
   }
 
-  return `[out:json][timeout:60][bbox:${bbox}];(${unions.join('')});out geom;`;
+  return `[out:json][timeout:120][bbox:${bbox}];(${unions.join('')});out geom;`;
 }
 
 function classifyElement(el, style) {

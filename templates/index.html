@@ -12,7 +12,7 @@
   .layout { display: flex; height: 100vh; }
   .sidebar { width: 340px; min-width: 340px; padding: 24px; overflow-y: auto; background: #16213e; border-right: 1px solid #0f3460; display: flex; flex-direction: column; gap: 20px; }
   .map-container { flex: 1; position: relative; }
-  #map { height: 100%; width: 100%; }
+  #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
 
   h1 { font-size: 20px; font-weight: 600; color: #e94560; letter-spacing: 1px; }
   h1 span { color: #e0e0e0; font-weight: 300; }
@@ -37,6 +37,13 @@
   .orient-btn { flex: 1; background: #0f3460; border: 1px solid #1a4080; color: #888; padding: 7px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
   .orient-btn.active { background: #1a4080; color: #e0e0e0; border-color: #e94560; }
   .orient-btn:hover { border-color: #e94560; }
+
+  .layer-checks { display: flex; flex-wrap: wrap; gap: 4px; }
+  .layer-check { display: flex; align-items: center; gap: 4px; background: #0f3460; border: 1px solid #1a4080; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.15s; user-select: none; }
+  .layer-check:hover { border-color: #e94560; }
+  .layer-check input { accent-color: #e94560; width: 14px; height: 14px; cursor: pointer; }
+  .layer-check.off { opacity: 0.4; }
+  .layer-check .swatch { width: 10px; height: 10px; border-radius: 2px; border: 1px solid #333; }
 
   .checkbox-row { display: flex; align-items: center; gap: 8px; }
   .checkbox-row input[type="checkbox"] { accent-color: #e94560; width: 16px; height: 16px; }
@@ -126,6 +133,11 @@
       </div>
     </div>
 
+    <div class="field">
+      <label>Layers</label>
+      <div id="layer-checks" class="layer-checks"></div>
+    </div>
+
     <div class="checkbox-row">
       <input type="checkbox" id="circle">
       <label for="circle">Circular clip</label>
@@ -157,6 +169,40 @@ let selectedLat = null;
 let selectedLon = null;
 
 const paperDims = {{ paper_dims | tojson }};
+const styleLayers = {{ style_layers | tojson }};
+const LAYER_COLORS = {
+  streets_primary: '#000', streets_secondary: '#000', streets_minor: '#888',
+  water: '#3366aa', buildings: '#666', parks: '#228833', railway: '#444',
+};
+
+function buildLayerChecks() {
+  const styleName = document.getElementById('style').value;
+  const layers = styleLayers[styleName] || [];
+  const container = document.getElementById('layer-checks');
+  container.innerHTML = '';
+  for (const name of layers) {
+    const label = document.createElement('label');
+    label.className = 'layer-check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.dataset.layer = name;
+    cb.addEventListener('change', () => { label.classList.toggle('off', !cb.checked); });
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = LAYER_COLORS[name] || '#888';
+    
+    let displayName = name.replace('streets_', '').replace(/_/g, ' ').toUpperCase();
+    const text = document.createTextNode(' ' + displayName);
+    
+    label.appendChild(cb);
+    label.appendChild(swatch);
+    label.appendChild(text);
+    container.appendChild(label);
+  }
+}
+buildLayerChecks();
+
 let orientation = 'landscape';
 
 function getPaperKey() {
@@ -261,10 +307,14 @@ searchInput.addEventListener('input', () => {
       div.addEventListener('click', () => {
         const lat = parseFloat(item.lat);
         const lon = parseFloat(item.lon);
-        setLocation(lat, lon, item.display_name);
-        map.setView([lat, lon], 14);
         searchResults.style.display = 'none';
         searchInput.value = item.display_name.split(',')[0];
+        
+        map.flyTo([lat, lon], 14, { duration: 0.5 });
+        setLocation(lat, lon, item.display_name);
+        
+        // Ensure Leaflet recalculates correctly after DOM updates
+        setTimeout(() => map.invalidateSize(), 300);
       });
       searchResults.appendChild(div);
     });
@@ -288,7 +338,11 @@ radiusSlider.addEventListener('input', () => {
 });
 
 // Update preview on setting changes
-['paper', 'style'].forEach(id => document.getElementById(id).addEventListener('change', updatePreview));
+['paper'].forEach(id => document.getElementById(id).addEventListener('change', updatePreview));
+document.getElementById('style').addEventListener('change', () => {
+  buildLayerChecks();
+  updatePreview();
+});
 document.getElementById('circle').addEventListener('change', updatePreview);
 
 // Generate
@@ -299,7 +353,7 @@ document.getElementById('generate-btn').addEventListener('click', async () => {
 
   btn.disabled = true;
   btn.textContent = 'Generating...';
-  status.textContent = 'Fetching OSM data and rendering SVG...';
+  status.textContent = 'Fetching OSM data & generating... (this can take 1-3 minutes for large areas)';
   status.className = '';
   dlBtn.style.display = 'none';
 
@@ -318,6 +372,7 @@ document.getElementById('generate-btn').addEventListener('click', async () => {
         margin_right: parseFloat(document.getElementById('m-right').value),
         margin_bottom: parseFloat(document.getElementById('m-bottom').value),
         margin_left: parseFloat(document.getElementById('m-left').value),
+        layers: [...document.querySelectorAll('#layer-checks input:checked')].map(cb => cb.dataset.layer),
       })
     });
     const data = await res.json();

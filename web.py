@@ -21,7 +21,8 @@ def index():
     styles = list(STYLES.keys())
     papers = list(PAPER_SIZES.keys())
     paper_dims = {k: {"w": v[0], "h": v[1]} for k, v in PAPER_SIZES.items()}
-    return render_template("index.html", styles=styles, papers=papers, paper_dims=paper_dims)
+    style_layers = {name: list(s["layers"].keys()) for name, s in STYLES.items()}
+    return render_template("index.html", styles=styles, style_layers=style_layers, papers=papers, paper_dims=paper_dims)
 
 
 @app.route("/generate", methods=["POST"])
