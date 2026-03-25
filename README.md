@@ -33,15 +33,6 @@ No installation needed. The web app runs entirely in the browser — no server, 
 - Client-side geometry clipping and SVG string generation in vanilla JavaScript
 - Zero dependencies, single HTML file, hosted on GitHub Pages
 
-### Local Web UI (Flask)
-
-For offline use or development, CityPlot also includes a Flask-based web server that uses the full Python pipeline (osmnx + Shapely UTM projection):
-
-```bash
-python web.py
-# → http://localhost:5555
-```
-
 ## CLI
 
 ```bash
@@ -152,8 +143,6 @@ No raster step. No intermediate PNG. Geographic coordinates are projected to met
 - [geopandas](https://geopandas.org/) — geospatial data processing
 - [svgwrite](https://github.com/mozman/svgwrite) — SVG generation
 - [shapely](https://shapely.readthedocs.io/) — geometry operations (clipping)
-- [flask](https://flask.palletsprojects.com/) — web UI (optional, only for `web.py`)
-
 ## License
 
 Copyright © 2026 Uwe Trostheide

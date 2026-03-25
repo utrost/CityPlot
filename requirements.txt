@@ -2,5 +2,4 @@ osmnx>=2.0
 geopandas>=1.0
 svgwrite>=1.4
 shapely>=2.0
-flask>=3.0
 scipy>=1.10  # optional: fast path optimization (KD-tree), falls back to naive O(n²) without it
