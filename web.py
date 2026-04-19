@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """CityPlot Web UI — Flask + Leaflet frontend for cityplot.py"""
 
+import atexit
 import os
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from flask import Flask, render_template, request, send_file, jsonify
@@ -12,8 +14,29 @@ from cityplot import generate_svg, STYLES, PAPER_SIZES
 
 app = Flask(__name__)
 
-# Store generation status
-jobs = {}
+TEMP_MAX_AGE_SECONDS = 3600
+
+
+def _cleanup_temp_files():
+    """Remove cityplot temp files older than TEMP_MAX_AGE_SECONDS."""
+    tmpdir = tempfile.gettempdir()
+    cutoff = time.time() - TEMP_MAX_AGE_SECONDS
+    for entry in Path(tmpdir).glob("cityplot_*.svg"):
+        try:
+            if entry.stat().st_mtime < cutoff:
+                entry.unlink()
+        except OSError:
+            pass
+
+
+def _start_cleanup_timer():
+    _cleanup_temp_files()
+    timer = threading.Timer(600, _start_cleanup_timer)
+    timer.daemon = True
+    timer.start()
+
+
+_start_cleanup_timer()
 
 
 @app.route("/")
@@ -27,19 +50,41 @@ def index():
 @app.route("/generate", methods=["POST"])
 def generate():
     data = request.json
+    if not data:
+        return jsonify({"ok": False, "error": "Request body must be JSON"}), 400
 
-    lat = float(data["lat"])
-    lon = float(data["lon"])
-    radius = int(data.get("radius", 1000))
+    try:
+        lat = float(data["lat"])
+        lon = float(data["lon"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"ok": False, "error": "lat and lon are required numeric fields"}), 400
+
+    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+        return jsonify({"ok": False, "error": "lat must be -90..90, lon must be -180..180"}), 400
+
+    try:
+        radius = int(data.get("radius", 1000))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "radius must be an integer"}), 400
+
     style = data.get("style", "default")
+    if style not in STYLES:
+        return jsonify({"ok": False, "error": f"Unknown style. Available: {', '.join(STYLES)}"}), 400
+
     paper = data.get("paper", "a3l")
+    if paper not in PAPER_SIZES:
+        return jsonify({"ok": False, "error": f"Unknown paper. Available: {', '.join(PAPER_SIZES)}"}), 400
+
     circle = data.get("circle", False)
 
     # Parse margins
-    m_top = float(data.get("margin_top", 15))
-    m_right = float(data.get("margin_right", 15))
-    m_bottom = float(data.get("margin_bottom", 15))
-    m_left = float(data.get("margin_left", 15))
+    try:
+        m_top = float(data.get("margin_top", 15))
+        m_right = float(data.get("margin_right", 15))
+        m_bottom = float(data.get("margin_bottom", 15))
+        m_left = float(data.get("margin_left", 15))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Margins must be numeric"}), 400
     margins = (m_top, m_right, m_bottom, m_left)
 
     # Generate in temp file
@@ -62,17 +107,23 @@ def generate():
         )
         return jsonify({"ok": True, "file": outpath, "size_kb": round(Path(outpath).stat().st_size / 1024)})
     except Exception as e:
+        if os.path.exists(outpath):
+            os.unlink(outpath)
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/download")
 def download():
     filepath = request.args.get("file")
-    if not filepath or not filepath.startswith(tempfile.gettempdir()):
+    if not filepath:
         return "Invalid path", 400
-    if not Path(filepath).exists():
+    resolved = Path(filepath).resolve()
+    tmpdir = Path(tempfile.gettempdir()).resolve()
+    if not str(resolved).startswith(str(tmpdir) + os.sep) or not resolved.name.startswith("cityplot_"):
+        return "Invalid path", 400
+    if not resolved.exists():
         return "File not found", 404
-    return send_file(filepath, mimetype="image/svg+xml", as_attachment=True,
+    return send_file(str(resolved), mimetype="image/svg+xml", as_attachment=True,
                      download_name="cityplot.svg")
 
 

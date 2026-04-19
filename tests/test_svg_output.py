@@ -1,6 +1,5 @@
 """Tests for SVG output validation."""
 
-import copy
 import os
 import tempfile
 import xml.etree.ElementTree as ET
@@ -10,16 +9,7 @@ import pytest
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon, Point
 
-import cityplot
 from cityplot import generate_svg, STYLES, PAPER_SIZES, LAYER_LABELS, INKSCAPE_NS
-
-
-@pytest.fixture(autouse=True)
-def restore_styles():
-    """Restore STYLES after each test since generate_svg mutates it."""
-    original = copy.deepcopy(cityplot.STYLES)
-    yield
-    cityplot.STYLES.update(original)
 
 
 def _make_mock_gdf(geometries):

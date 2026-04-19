@@ -9,6 +9,7 @@ Usage:
 """
 
 import argparse
+import copy
 import sys
 from pathlib import Path
 
@@ -239,7 +240,7 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
                  layer_filter=None):
     """Main pipeline: fetch data → project → write SVG."""
 
-    style = STYLES.get(style_name, STYLES["default"])
+    style = copy.deepcopy(STYLES.get(style_name, STYLES["default"]))
     paper_w, paper_h = PAPER_SIZES.get(paper, PAPER_SIZES["a3l"])
     paper_aspect = paper_w / paper_h  # >1 for landscape
 

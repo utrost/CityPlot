@@ -2,12 +2,13 @@
 
 import os
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-from web import app
+from web import app, _cleanup_temp_files
 from cityplot import STYLES, PAPER_SIZES
 
 
@@ -43,9 +44,7 @@ class TestGenerateRoute:
 
     @patch("web.generate_svg")
     def test_generate_success(self, mock_gen, client):
-        """Test successful SVG generation."""
         def side_effect(**kwargs):
-            # Create a dummy file at the output path
             Path(kwargs["output"]).write_text("<svg></svg>")
 
         mock_gen.side_effect = side_effect
@@ -61,13 +60,11 @@ class TestGenerateRoute:
         assert data["ok"] is True
         assert "file" in data
         assert "size_kb" in data
-        # Clean up
         if os.path.exists(data["file"]):
             os.unlink(data["file"])
 
     @patch("web.generate_svg")
     def test_generate_with_all_options(self, mock_gen, client):
-        """Test generation with all optional parameters."""
         def side_effect(**kwargs):
             Path(kwargs["output"]).write_text("<svg></svg>")
 
@@ -88,7 +85,6 @@ class TestGenerateRoute:
         data = resp.get_json()
         assert resp.status_code == 200
         assert data["ok"] is True
-        # Verify args passed to generate_svg
         call_kwargs = mock_gen.call_args[1]
         assert call_kwargs["radius"] == 3000
         assert call_kwargs["style_name"] == "minimal"
@@ -112,7 +108,6 @@ class TestGenerateRoute:
 
     @patch("web.generate_svg")
     def test_generate_default_values(self, mock_gen, client):
-        """Test that defaults are applied when optional fields missing."""
         def side_effect(**kwargs):
             Path(kwargs["output"]).write_text("<svg></svg>")
 
@@ -132,12 +127,57 @@ class TestGenerateRoute:
         if os.path.exists(data["file"]):
             os.unlink(data["file"])
 
+    def test_generate_missing_lat_lon(self, client):
+        resp = client.post("/generate", json={"radius": 1000})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert "lat" in data["error"]
+
+    def test_generate_non_numeric_lat(self, client):
+        resp = client.post("/generate", json={"lat": "abc", "lon": 8.80})
+        assert resp.status_code == 400
+
+    def test_generate_lat_out_of_range(self, client):
+        resp = client.post("/generate", json={"lat": 91, "lon": 8.80})
+        assert resp.status_code == 400
+        assert "lat must be" in resp.get_json()["error"]
+
+    def test_generate_lon_out_of_range(self, client):
+        resp = client.post("/generate", json={"lat": 53, "lon": 181})
+        assert resp.status_code == 400
+
+    def test_generate_invalid_radius(self, client):
+        resp = client.post("/generate", json={"lat": 53, "lon": 8, "radius": "abc"})
+        assert resp.status_code == 400
+        assert "radius" in resp.get_json()["error"]
+
+    def test_generate_invalid_style(self, client):
+        resp = client.post("/generate", json={"lat": 53, "lon": 8, "style": "nope"})
+        assert resp.status_code == 400
+        assert "style" in resp.get_json()["error"].lower()
+
+    def test_generate_invalid_paper(self, client):
+        resp = client.post("/generate", json={"lat": 53, "lon": 8, "paper": "nope"})
+        assert resp.status_code == 400
+        assert "paper" in resp.get_json()["error"].lower()
+
+    def test_generate_invalid_margin(self, client):
+        resp = client.post("/generate", json={"lat": 53, "lon": 8, "margin_top": "abc"})
+        assert resp.status_code == 400
+        assert "argin" in resp.get_json()["error"]
+
+    def test_generate_no_json_body(self, client):
+        resp = client.post("/generate", data="not json",
+                           content_type="application/json")
+        assert resp.status_code == 400
+
 
 class TestDownloadRoute:
     """Test the /download endpoint."""
 
     def test_download_valid_file(self, client):
-        fd, path = tempfile.mkstemp(suffix=".svg")
+        fd, path = tempfile.mkstemp(suffix=".svg", prefix="cityplot_")
         os.write(fd, b"<svg></svg>")
         os.close(fd)
         try:
@@ -155,7 +195,59 @@ class TestDownloadRoute:
         resp = client.get("/download?file=/etc/passwd")
         assert resp.status_code == 400
 
+    def test_download_path_traversal(self, client):
+        tmpdir = tempfile.gettempdir()
+        traversal = os.path.join(tmpdir, "cityplot_../../etc/passwd")
+        resp = client.get(f"/download?file={traversal}")
+        assert resp.status_code == 400
+
+    def test_download_non_cityplot_prefix(self, client):
+        fd, path = tempfile.mkstemp(suffix=".svg", prefix="other_")
+        os.write(fd, b"<svg></svg>")
+        os.close(fd)
+        try:
+            resp = client.get(f"/download?file={path}")
+            assert resp.status_code == 400
+        finally:
+            os.unlink(path)
+
     def test_download_nonexistent_file(self, client):
-        path = os.path.join(tempfile.gettempdir(), "nonexistent_12345.svg")
+        path = os.path.join(tempfile.gettempdir(), "cityplot_nonexistent_12345.svg")
         resp = client.get(f"/download?file={path}")
         assert resp.status_code == 404
+
+
+class TestTempFileCleanup:
+    """Test the temp file cleanup mechanism."""
+
+    def test_cleanup_removes_old_files(self):
+        fd, path = tempfile.mkstemp(suffix=".svg", prefix="cityplot_")
+        os.write(fd, b"<svg></svg>")
+        os.close(fd)
+        # Set mtime to 2 hours ago
+        old_time = time.time() - 7200
+        os.utime(path, (old_time, old_time))
+        _cleanup_temp_files()
+        assert not os.path.exists(path)
+
+    def test_cleanup_keeps_recent_files(self):
+        fd, path = tempfile.mkstemp(suffix=".svg", prefix="cityplot_")
+        os.write(fd, b"<svg></svg>")
+        os.close(fd)
+        try:
+            _cleanup_temp_files()
+            assert os.path.exists(path)
+        finally:
+            os.unlink(path)
+
+    def test_cleanup_ignores_non_cityplot_files(self):
+        fd, path = tempfile.mkstemp(suffix=".svg", prefix="other_")
+        os.write(fd, b"<svg></svg>")
+        os.close(fd)
+        old_time = time.time() - 7200
+        os.utime(path, (old_time, old_time))
+        try:
+            _cleanup_temp_files()
+            assert os.path.exists(path)
+        finally:
+            os.unlink(path)

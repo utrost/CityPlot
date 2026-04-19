@@ -1,6 +1,5 @@
 """Tests for edge cases and uncovered code paths in cityplot."""
 
-import copy
 import os
 import sys
 import tempfile
@@ -10,16 +9,7 @@ import pytest
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon, Point
 
-import cityplot
 from cityplot import generate_svg, main, STYLES, PAPER_SIZES
-
-
-@pytest.fixture(autouse=True)
-def restore_styles():
-    """Restore STYLES after each test since generate_svg mutates it."""
-    original = copy.deepcopy(cityplot.STYLES)
-    yield
-    cityplot.STYLES.update(original)
 
 
 def _make_mock_gdf(geometries):
@@ -251,3 +241,50 @@ class TestGenerateSVGDasharray:
         finally:
             if os.path.exists(svg_path):
                 os.unlink(svg_path)
+
+
+class TestStylesNotMutated:
+    """Test that generate_svg does not mutate the global STYLES dict."""
+
+    def test_layer_filter_does_not_mutate_styles(self):
+        """Calling generate_svg with layer_filter should not modify STYLES."""
+        import copy
+        original_default = copy.deepcopy(STYLES["default"])
+        layer_data = _build_layer_data("default")
+        fd, svg_path = tempfile.mkstemp(suffix=".svg")
+        os.close(fd)
+        try:
+            with patch("cityplot.fetch_features",
+                       side_effect=_mock_fetch_factory(layer_data)):
+                generate_svg(
+                    place="53.07,8.80",
+                    radius=2000,
+                    style_name="default",
+                    output=svg_path,
+                    layer_filter=["water"],
+                )
+            assert set(STYLES["default"]["layers"].keys()) == set(original_default["layers"].keys())
+        finally:
+            if os.path.exists(svg_path):
+                os.unlink(svg_path)
+
+    def test_repeated_calls_with_filter(self):
+        """Multiple filtered calls should all succeed."""
+        layer_data = _build_layer_data("default")
+        for _ in range(3):
+            fd, svg_path = tempfile.mkstemp(suffix=".svg")
+            os.close(fd)
+            try:
+                with patch("cityplot.fetch_features",
+                           side_effect=_mock_fetch_factory(layer_data)):
+                    generate_svg(
+                        place="53.07,8.80",
+                        radius=2000,
+                        style_name="default",
+                        output=svg_path,
+                        layer_filter=["water", "buildings"],
+                    )
+                assert os.path.exists(svg_path)
+            finally:
+                if os.path.exists(svg_path):
+                    os.unlink(svg_path)
