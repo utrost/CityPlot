@@ -12,6 +12,12 @@ from shapely.geometry import LineString, Polygon, Point
 from cityplot import generate_svg, STYLES, PAPER_SIZES, LAYER_LABELS, INKSCAPE_NS
 
 
+@pytest.fixture(autouse=True)
+def no_sleep():
+    with patch("cityplot.time.sleep"):
+        yield
+
+
 def _make_mock_gdf(geometries):
     """Create a GeoDataFrame from a list of geometries with a CRS."""
     gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:32632")

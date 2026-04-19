@@ -11,6 +11,7 @@ Usage:
 import argparse
 import copy
 import sys
+import time
 from pathlib import Path
 
 import osmnx as ox
@@ -20,6 +21,11 @@ from shapely.geometry import MultiLineString, LineString, Polygon, MultiPolygon,
 
 # Configure osmnx timeout (Overpass API can be slow for large queries)
 ox.settings.timeout = 60
+
+# Rate limiting for Overpass API
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2        # seconds, doubles each retry
+LAYER_FETCH_DELAY = 1.0     # seconds between consecutive layer fetches
 
 # Inkscape namespace for layer support
 INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape"
@@ -174,63 +180,77 @@ def parse_center(place):
     return None
 
 
+def _fetch_with_retry(fetch_fn, tags):
+    """Call fetch_fn with exponential backoff on failure."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            return fetch_fn()
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                delay = RETRY_BASE_DELAY * (2 ** attempt)
+                print(f"    Retry {attempt + 1}/{MAX_RETRIES} in {delay}s ({e})",
+                      file=sys.stderr)
+                time.sleep(delay)
+            else:
+                print(f"  Warning: Could not fetch {tags} after "
+                      f"{MAX_RETRIES} attempts: {e}", file=sys.stderr)
+                return None
+    return None
+
+
 def fetch_features(place=None, center=None, bbox=None, radius=None, tags=None,
                    clip_center_utm=None, clip_radius=None, clip_circle=False,
                    paper_aspect=1.0):
     """Fetch OSM features as GeoDataFrame, projected to UTM and clipped."""
-    try:
-        if bbox:
-            west, south, east, north = bbox
-            gdf = ox.features_from_bbox(bbox=(north, south, east, west), tags=tags)
-        elif center and radius:
-            gdf = ox.features_from_point(center, dist=radius, tags=tags)
-        elif place and radius:
-            gdf = ox.features_from_point(
-                ox.geocode(place), dist=radius, tags=tags
-            )
-        elif place:
-            gdf = ox.features_from_place(place, tags=tags)
-        else:
-            return gpd.GeoDataFrame()
-
-        if gdf.empty:
-            return gdf
-
-        # Project to UTM for metric coordinates
-        gdf = ox.projection.project_gdf(gdf)
-
-        # Clip geometries to region (prevents rivers/railways from extending bounds)
-        if clip_center_utm is not None and clip_radius is not None:
-            cx, cy = clip_center_utm
-            if clip_circle:
-                clip_shape = Point(clip_center_utm).buffer(clip_radius)
-            else:
-                # Rectangular clip matching paper aspect ratio
-                # Radius defines the shorter half-dimension
-                if paper_aspect >= 1:
-                    # Landscape: radius = half-height, width stretches
-                    half_h = clip_radius
-                    half_w = clip_radius * paper_aspect
-                else:
-                    # Portrait: radius = half-width, height stretches
-                    half_w = clip_radius
-                    half_h = clip_radius / paper_aspect
-                clip_shape = Polygon([
-                    (cx - half_w, cy - half_h),
-                    (cx + half_w, cy - half_h),
-                    (cx + half_w, cy + half_h),
-                    (cx - half_w, cy + half_h),
-                ])
-            gdf = gdf.copy()
-            gdf["geometry"] = gdf["geometry"].intersection(clip_shape)
-            # Remove empty geometries after clipping
-            gdf = gdf[~gdf["geometry"].is_empty]
-
-        return gdf
-
-    except Exception as e:
-        print(f"  Warning: Could not fetch {tags}: {e}", file=sys.stderr)
+    if bbox:
+        west, south, east, north = bbox
+        fetch_fn = lambda: ox.features_from_bbox(bbox=(north, south, east, west), tags=tags)
+    elif center and radius:
+        fetch_fn = lambda: ox.features_from_point(center, dist=radius, tags=tags)
+    elif place and radius:
+        fetch_fn = lambda: ox.features_from_point(
+            ox.geocode(place), dist=radius, tags=tags
+        )
+    elif place:
+        fetch_fn = lambda: ox.features_from_place(place, tags=tags)
+    else:
         return gpd.GeoDataFrame()
+
+    gdf = _fetch_with_retry(fetch_fn, tags)
+    if gdf is None or gdf.empty:
+        return gpd.GeoDataFrame()
+
+    # Project to UTM for metric coordinates
+    gdf = ox.projection.project_gdf(gdf)
+
+    # Clip geometries to region (prevents rivers/railways from extending bounds)
+    if clip_center_utm is not None and clip_radius is not None:
+        cx, cy = clip_center_utm
+        if clip_circle:
+            clip_shape = Point(clip_center_utm).buffer(clip_radius)
+        else:
+            # Rectangular clip matching paper aspect ratio
+            # Radius defines the shorter half-dimension
+            if paper_aspect >= 1:
+                # Landscape: radius = half-height, width stretches
+                half_h = clip_radius
+                half_w = clip_radius * paper_aspect
+            else:
+                # Portrait: radius = half-width, height stretches
+                half_w = clip_radius
+                half_h = clip_radius / paper_aspect
+            clip_shape = Polygon([
+                (cx - half_w, cy - half_h),
+                (cx + half_w, cy - half_h),
+                (cx + half_w, cy + half_h),
+                (cx - half_w, cy + half_h),
+            ])
+        gdf = gdf.copy()
+        gdf["geometry"] = gdf["geometry"].intersection(clip_shape)
+        # Remove empty geometries after clipping
+        gdf = gdf[~gdf["geometry"].is_empty]
+
+    return gdf
 
 
 # ── SVG Generation ───────────────────────────────────────────────────────────
@@ -296,7 +316,10 @@ def generate_svg(place=None, bbox=None, radius=None, style_name="default",
     all_lines = {}
     all_bounds = []
 
-    for layer_name, layer_cfg in style["layers"].items():
+    layer_items = list(style["layers"].items())
+    for i, (layer_name, layer_cfg) in enumerate(layer_items):
+        if i > 0:
+            time.sleep(LAYER_FETCH_DELAY)
         print(f"  Fetching {layer_name}...")
         gdf = fetch_features(place=place, center=center, bbox=bbox, radius=radius,
                              tags=layer_cfg["tags"],

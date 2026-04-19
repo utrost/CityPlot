@@ -1,14 +1,14 @@
-"""Tests for fetch_features and generate_svg edge cases."""
+"""Tests for fetch_features and retry logic."""
 
 import os
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 import pytest
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon, Point
 
-from cityplot import fetch_features, generate_svg, STYLES
+from cityplot import fetch_features, _fetch_with_retry, generate_svg, STYLES
 
 
 class TestFetchFeatures:
@@ -22,7 +22,6 @@ class TestFetchFeatures:
 
     @patch("cityplot.ox")
     def test_bbox_mode(self, mock_ox):
-        """Test fetching with bbox."""
         mock_ox.features_from_bbox.return_value = self._make_gdf()
         mock_ox.projection.project_gdf.return_value = self._make_gdf()
         result = fetch_features(bbox=[8.78, 53.06, 8.84, 53.09],
@@ -32,7 +31,6 @@ class TestFetchFeatures:
 
     @patch("cityplot.ox")
     def test_center_radius_mode(self, mock_ox):
-        """Test fetching with center + radius."""
         mock_ox.features_from_point.return_value = self._make_gdf()
         mock_ox.projection.project_gdf.return_value = self._make_gdf()
         result = fetch_features(center=(53.07, 8.80), radius=2000,
@@ -43,7 +41,6 @@ class TestFetchFeatures:
 
     @patch("cityplot.ox")
     def test_place_radius_mode(self, mock_ox):
-        """Test fetching with place name + radius."""
         mock_ox.geocode.return_value = (53.07, 8.80)
         mock_ox.features_from_point.return_value = self._make_gdf()
         mock_ox.projection.project_gdf.return_value = self._make_gdf()
@@ -54,7 +51,6 @@ class TestFetchFeatures:
 
     @patch("cityplot.ox")
     def test_place_only_mode(self, mock_ox):
-        """Test fetching with place name only (no radius)."""
         mock_ox.features_from_place.return_value = self._make_gdf()
         mock_ox.projection.project_gdf.return_value = self._make_gdf()
         result = fetch_features(place="Bremen",
@@ -64,31 +60,30 @@ class TestFetchFeatures:
         assert not result.empty
 
     def test_no_args_returns_empty(self):
-        """No place, center, or bbox should return empty GDF."""
         result = fetch_features(tags={"highway": "primary"})
         assert result.empty
 
     @patch("cityplot.ox")
     def test_empty_result_returns_early(self, mock_ox):
-        """Empty GDF from API should be returned as-is."""
         mock_ox.features_from_bbox.return_value = gpd.GeoDataFrame()
         result = fetch_features(bbox=[8.78, 53.06, 8.84, 53.09],
                                 tags={"highway": "primary"})
         assert result.empty
-        # project_gdf should not be called for empty results
         mock_ox.projection.project_gdf.assert_not_called()
 
+    @patch("cityplot.time.sleep")
     @patch("cityplot.ox")
-    def test_exception_returns_empty(self, mock_ox):
-        """API errors should be caught and return empty GDF."""
+    def test_exception_retries_then_returns_empty(self, mock_ox, mock_sleep):
+        """All retries exhausted should return empty GDF."""
         mock_ox.features_from_bbox.side_effect = Exception("Network error")
         result = fetch_features(bbox=[8.78, 53.06, 8.84, 53.09],
                                 tags={"highway": "primary"})
         assert result.empty
+        assert mock_ox.features_from_bbox.call_count == 3
+        assert mock_sleep.call_count == 2
 
     @patch("cityplot.ox")
     def test_rectangular_clip_landscape(self, mock_ox):
-        """Test rectangular clipping with landscape aspect ratio."""
         geoms = [Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])]
         gdf = gpd.GeoDataFrame(geometry=geoms, crs="EPSG:32632")
         mock_ox.features_from_point.return_value = gdf
@@ -98,13 +93,12 @@ class TestFetchFeatures:
             center=(53.07, 8.80), radius=1000,
             tags={"building": True},
             clip_center_utm=(50, 50), clip_radius=1000,
-            clip_circle=False, paper_aspect=1.5,  # landscape
+            clip_circle=False, paper_aspect=1.5,
         )
         assert not result.empty
 
     @patch("cityplot.ox")
     def test_rectangular_clip_portrait(self, mock_ox):
-        """Test rectangular clipping with portrait aspect ratio."""
         geoms = [Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])]
         gdf = gpd.GeoDataFrame(geometry=geoms, crs="EPSG:32632")
         mock_ox.features_from_point.return_value = gdf
@@ -114,13 +108,12 @@ class TestFetchFeatures:
             center=(53.07, 8.80), radius=1000,
             tags={"building": True},
             clip_center_utm=(50, 50), clip_radius=1000,
-            clip_circle=False, paper_aspect=0.7,  # portrait
+            clip_circle=False, paper_aspect=0.7,
         )
         assert not result.empty
 
     @patch("cityplot.ox")
     def test_circle_clip(self, mock_ox):
-        """Test circular clipping."""
         geoms = [Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])]
         gdf = gpd.GeoDataFrame(geometry=geoms, crs="EPSG:32632")
         mock_ox.features_from_point.return_value = gdf
@@ -136,8 +129,6 @@ class TestFetchFeatures:
 
     @patch("cityplot.ox")
     def test_clip_removes_empty_geometries(self, mock_ox):
-        """Geometries fully outside clip region should be removed."""
-        # Geometry far from clip center
         geoms = [Polygon([(9999, 9999), (10000, 9999),
                           (10000, 10000), (9999, 10000)])]
         gdf = gpd.GeoDataFrame(geometry=geoms, crs="EPSG:32632")
@@ -151,3 +142,72 @@ class TestFetchFeatures:
             clip_circle=False, paper_aspect=1.0,
         )
         assert result.empty
+
+
+class TestFetchWithRetry:
+    """Test the retry mechanism."""
+
+    @patch("cityplot.time.sleep")
+    def test_succeeds_on_first_try(self, mock_sleep):
+        fn = MagicMock(return_value="ok")
+        result = _fetch_with_retry(fn, tags={"test": True})
+        assert result == "ok"
+        assert fn.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("cityplot.time.sleep")
+    def test_succeeds_on_second_try(self, mock_sleep):
+        fn = MagicMock(side_effect=[Exception("fail"), "ok"])
+        result = _fetch_with_retry(fn, tags={"test": True})
+        assert result == "ok"
+        assert fn.call_count == 2
+        mock_sleep.assert_called_once_with(2)
+
+    @patch("cityplot.time.sleep")
+    def test_succeeds_on_third_try(self, mock_sleep):
+        fn = MagicMock(side_effect=[Exception("fail"), Exception("fail"), "ok"])
+        result = _fetch_with_retry(fn, tags={"test": True})
+        assert result == "ok"
+        assert fn.call_count == 3
+        assert mock_sleep.call_args_list == [call(2), call(4)]
+
+    @patch("cityplot.time.sleep")
+    def test_all_retries_exhausted_returns_none(self, mock_sleep):
+        fn = MagicMock(side_effect=Exception("always fails"))
+        result = _fetch_with_retry(fn, tags={"test": True})
+        assert result is None
+        assert fn.call_count == 3
+
+    @patch("cityplot.time.sleep")
+    def test_exponential_backoff_delays(self, mock_sleep):
+        fn = MagicMock(side_effect=Exception("fail"))
+        _fetch_with_retry(fn, tags={"test": True})
+        assert mock_sleep.call_args_list == [call(2), call(4)]
+
+
+class TestLayerFetchDelay:
+    """Test that delays are inserted between layer fetches."""
+
+    @patch("cityplot.time.sleep")
+    @patch("cityplot.fetch_features")
+    def test_delay_between_layers(self, mock_fetch, mock_sleep):
+        """generate_svg should sleep between layer fetches."""
+        geoms = [LineString([(500000 + i * 10, 5800000 + i * 10) for i in range(5)])]
+        gdf = gpd.GeoDataFrame(geometry=geoms, crs="EPSG:32632")
+        mock_fetch.return_value = gdf
+
+        fd, svg_path = tempfile.mkstemp(suffix=".svg")
+        os.close(fd)
+        try:
+            generate_svg(
+                place="53.07,8.80",
+                radius=2000,
+                style_name="minimal",
+                output=svg_path,
+            )
+            num_layers = len(STYLES["minimal"]["layers"])
+            sleep_calls = [c for c in mock_sleep.call_args_list if c == call(1.0)]
+            assert len(sleep_calls) == num_layers - 1
+        finally:
+            if os.path.exists(svg_path):
+                os.unlink(svg_path)
