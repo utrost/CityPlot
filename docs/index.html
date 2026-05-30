@@ -437,58 +437,185 @@ function projectPaths(paths, centerLat) {
   return paths.map(path => path.map(([lon, lat]) => [lon * scale * 111320, lat * 111320]));
 }
 
+// A path is a closed ring (fillable area) when its first and last vertices
+// coincide — OSM closed ways repeat the first node. These must be clipped as
+// polygons; everything else (streets, rivers, rails) is clipped as open lines.
+function isClosedRing(path) {
+  if (path.length < 4) return false;
+  const f = path[0], l = path[path.length - 1];
+  return Math.abs(f[0] - l[0]) < 1e-6 && Math.abs(f[1] - l[1]) < 1e-6;
+}
+
 function clipPathsRect(paths, cx, cy, halfW, halfH) {
+  const minX = cx - halfW, minY = cy - halfH, maxX = cx + halfW, maxY = cy + halfH;
   const clipped = [];
   for (const path of paths) {
-    const segments = clipLineToRect(path, cx - halfW, cy - halfH, cx + halfW, cy + halfH);
-    clipped.push(...segments);
+    if (isClosedRing(path)) {
+      const poly = clipPolygonRect(path, minX, minY, maxX, maxY);
+      if (poly.length >= 3) {
+        poly.push([poly[0][0], poly[0][1]]); // re-close the clipped ring
+        clipped.push(poly);
+      }
+    } else {
+      for (const seg of clipLineRect(path, minX, minY, maxX, maxY)) clipped.push(seg);
+    }
   }
   return clipped;
 }
 
-function clipLineToRect(coords, minX, minY, maxX, maxY) {
-  // Simple: keep points inside, split at boundaries
-  const segments = [];
-  let current = [];
-
-  for (const [x, y] of coords) {
-    const inside = x >= minX && x <= maxX && y >= minY && y <= maxY;
-    if (inside) {
-      current.push([x, y]);
-    } else {
-      if (current.length > 0) {
-        // Add edge intersection point
-        current.push(clipPoint(current[current.length - 1], [x, y], minX, minY, maxX, maxY));
-        if (current.length >= 2) segments.push(current);
-        current = [];
+// Sutherland–Hodgman: clip a polygon against an axis-aligned rectangle.
+// Keeps the shape closed and computes true edge intersections (no corner spikes).
+function clipPolygonRect(path, minX, minY, maxX, maxY) {
+  let pts = path.slice();
+  if (isClosedRing(pts)) pts.pop(); // drop duplicate closing vertex while clipping
+  const clipEdge = (input, inside, isect) => {
+    const out = [], n = input.length;
+    for (let i = 0; i < n; i++) {
+      const cur = input[i], prev = input[(i + n - 1) % n];
+      const ci = inside(cur), pi = inside(prev);
+      if (ci) {
+        if (!pi) out.push(isect(prev, cur));
+        out.push(cur);
+      } else if (pi) {
+        out.push(isect(prev, cur));
       }
     }
-  }
-  if (current.length >= 2) segments.push(current);
-  // Handle closed polygons (buildings, parks)
-  if (coords.length > 2 && current.length >= 2) {
-    const first = coords[0], last = coords[coords.length - 1];
-    if (Math.abs(first[0] - last[0]) < 0.01 && Math.abs(first[1] - last[1]) < 0.01) {
-      // It's a closed shape, keep it as-is if it has enough points
-    }
-  }
-  return segments;
+    return out;
+  };
+  pts = clipEdge(pts, p => p[0] >= minX, (a, b) => { const t = (minX - a[0]) / (b[0] - a[0]); return [minX, a[1] + t * (b[1] - a[1])]; });
+  if (pts.length) pts = clipEdge(pts, p => p[0] <= maxX, (a, b) => { const t = (maxX - a[0]) / (b[0] - a[0]); return [maxX, a[1] + t * (b[1] - a[1])]; });
+  if (pts.length) pts = clipEdge(pts, p => p[1] >= minY, (a, b) => { const t = (minY - a[1]) / (b[1] - a[1]); return [a[0] + t * (b[0] - a[0]), minY]; });
+  if (pts.length) pts = clipEdge(pts, p => p[1] <= maxY, (a, b) => { const t = (maxY - a[1]) / (b[1] - a[1]); return [a[0] + t * (b[0] - a[0]), maxY]; });
+  return pts;
 }
 
-function clipPoint(inside, outside, minX, minY, maxX, maxY) {
-  // Simple clamp (good enough for visual output)
-  return [
-    Math.max(minX, Math.min(maxX, outside[0])),
-    Math.max(minY, Math.min(maxY, outside[1]))
-  ];
+// Liang–Barsky: clip an open polyline against a rectangle, returning the
+// visible sub-segments (a line may leave and re-enter the box several times).
+function clipLineRect(coords, minX, minY, maxX, maxY) {
+  const out = [];
+  let cur = null;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const c = liangBarsky(coords[i][0], coords[i][1], coords[i + 1][0], coords[i + 1][1], minX, minY, maxX, maxY);
+    if (!c) { cur = null; continue; }
+    const a = [c[0], c[1]], b = [c[2], c[3]];
+    if (cur && Math.abs(cur[cur.length - 1][0] - a[0]) < 1e-6 && Math.abs(cur[cur.length - 1][1] - a[1]) < 1e-6) {
+      cur.push(b);
+    } else {
+      cur = [a, b];
+      out.push(cur);
+    }
+  }
+  return out.filter(s => s.length >= 2);
+}
+
+function liangBarsky(x0, y0, x1, y1, minX, minY, maxX, maxY) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const p = [-dx, dx, -dy, dy];
+  const q = [x0 - minX, maxX - x0, y0 - minY, maxY - y0];
+  let t0 = 0, t1 = 1;
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return null; // parallel to this edge and outside
+    } else {
+      const r = q[i] / p[i];
+      if (p[i] < 0) { if (r > t1) return null; if (r > t0) t0 = r; }
+      else { if (r < t0) return null; if (r < t1) t1 = r; }
+    }
+  }
+  return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy];
 }
 
 function clipPathsCircle(paths, cx, cy, r) {
-  const r2 = r * r;
-  return paths.map(path => path.filter(([x, y]) => {
-    const dx = x - cx, dy = y - cy;
-    return dx * dx + dy * dy <= r2;
-  })).filter(p => p.length >= 2);
+  const circle = circlePolygon(cx, cy, r, 180);
+  const clipped = [];
+  for (const path of paths) {
+    if (isClosedRing(path)) {
+      const poly = clipPolygonConvex(path, circle);
+      if (poly.length >= 3) {
+        poly.push([poly[0][0], poly[0][1]]);
+        clipped.push(poly);
+      }
+    } else {
+      for (const seg of clipLineCircle(path, cx, cy, r)) clipped.push(seg);
+    }
+  }
+  return clipped;
+}
+
+function circlePolygon(cx, cy, r, n) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 2 * Math.PI;
+    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  return pts;
+}
+
+// Sutherland–Hodgman against an arbitrary convex clip polygon (here the
+// circle approximation), so filled areas stay closed instead of collapsing
+// into slivers when their vertices fall outside the radius.
+function clipPolygonConvex(path, clipPoly) {
+  let pts = path.slice();
+  if (isClosedRing(pts)) pts.pop();
+  for (let e = 0; e < clipPoly.length && pts.length; e++) {
+    const a = clipPoly[e], b = clipPoly[(e + 1) % clipPoly.length];
+    const inside = p => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= 0;
+    const isect = (s, t) => {
+      const x1 = s[0], y1 = s[1], x2 = t[0], y2 = t[1];
+      const x3 = a[0], y3 = a[1], x4 = b[0], y4 = b[1];
+      const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+      const px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / den;
+      const py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / den;
+      return [px, py];
+    };
+    const input = pts, out = [], n = input.length;
+    for (let i = 0; i < n; i++) {
+      const cur = input[i], prev = input[(i + n - 1) % n];
+      const ci = inside(cur), pi = inside(prev);
+      if (ci) {
+        if (!pi) out.push(isect(prev, cur));
+        out.push(cur);
+      } else if (pi) {
+        out.push(isect(prev, cur));
+      }
+    }
+    pts = out;
+  }
+  return pts;
+}
+
+// Clip an open polyline against a circle, returning visible sub-segments.
+function clipLineCircle(coords, cx, cy, r) {
+  const out = [];
+  let cur = null;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const seg = segCircleClip(coords[i], coords[i + 1], cx, cy, r);
+    if (!seg) { cur = null; continue; }
+    const a = seg[0], b = seg[1];
+    if (cur && Math.abs(cur[cur.length - 1][0] - a[0]) < 1e-6 && Math.abs(cur[cur.length - 1][1] - a[1]) < 1e-6) {
+      cur.push(b);
+    } else {
+      cur = [a, b];
+      out.push(cur);
+    }
+  }
+  return out.filter(s => s.length >= 2);
+}
+
+function segCircleClip(A, B, cx, cy, r) {
+  const dx = B[0] - A[0], dy = B[1] - A[1];
+  const fx = A[0] - cx, fy = A[1] - cy;
+  const aa = dx * dx + dy * dy;
+  const cc = fx * fx + fy * fy - r * r;
+  if (aa === 0) return cc <= 0 ? [A.slice(), B.slice()] : null;
+  const bb = 2 * (fx * dx + fy * dy);
+  const disc = bb * bb - 4 * aa * cc;
+  if (disc < 0) return cc <= 0 ? [A.slice(), B.slice()] : null; // never crosses: in or out
+  const sq = Math.sqrt(disc);
+  const lo = Math.max(0, (-bb - sq) / (2 * aa));
+  const hi = Math.min(1, (-bb + sq) / (2 * aa));
+  if (lo > hi) return null;
+  return [[A[0] + lo * dx, A[1] + lo * dy], [A[0] + hi * dx, A[1] + hi * dy]];
 }
 
 // ── SVG Generation ──────────────────────────────────────────────────────
@@ -539,11 +666,13 @@ function generateSVG(layerData, params) {
       for (let i = 1; i < path.length; i++) {
         d += ` L ${tx(path[i][0])},${ty(path[i][1])}`;
       }
-      // Close polygon paths for proper fill/hatch
+      // Only genuinely closed rings (lakes, parks, buildings) get filled and
+      // closed. Open lines (rivers, streets) stay open so they aren't turned
+      // into filled blobs.
       const first = path[0], last = path[path.length - 1];
-      const isClosed = (first[0] === last[0] && first[1] === last[1]);
-      const fill = cfg.fill || 'none';
-      if (isClosed || fill !== 'none') d += ' Z';
+      const isClosed = (Math.abs(first[0] - last[0]) < 1e-6 && Math.abs(first[1] - last[1]) < 1e-6);
+      const fill = isClosed ? (cfg.fill || 'none') : 'none';
+      if (isClosed) d += ' Z';
       let extra = '';
       if (cfg.dasharray) extra += ` stroke-dasharray="${cfg.dasharray}"`;
       svg += `    <path d="${d}" stroke="${cfg.stroke}" stroke-width="${cfg.width}" fill="${fill}" stroke-linecap="round" stroke-linejoin="round"${extra}/>\n`;
